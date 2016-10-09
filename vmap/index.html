@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Hello</title>
+<link rel="stylesheet" href="http://openlayers.org/en/v3.18.2/css/ol.css" type="text/css">
+<script src="http://openlayers.org/en/v3.18.2/build/ol.js" type="text/javascript"></script>
+<script src="resources/proj4.js"></script>
+<script src="resources/papaparse.js"></script>
+<script src="resources/shp.min.js"></script>
+<script>
+
+
+var styles = {
+  'Point': new ol.style.Style({
+    image: new ol.style.Circle({
+      radius: 5,
+      fill: null,
+      stroke: new ol.style.Stroke({color: 'red', width: 1})
+    })
+  }),
+  'LineString': new ol.style.Style({
+    stroke: new ol.style.Stroke({
+      color: 'green',
+      width: 1
+    })
+  }),
+  'MultiLineString': new ol.style.Style({
+    stroke: new ol.style.Stroke({
+      color: 'green',
+      width: 1
+    })
+  }),
+  'MultiPoint': new ol.style.Style({
+    image: new ol.style.Circle({
+      radius: 5,
+      fill: null,
+      stroke: new ol.style.Stroke({color: 'red', width: 1})
+    })
+  }),
+  'MultiPolygon': new ol.style.Style({
+    stroke: new ol.style.Stroke({
+      color: 'yellow',
+      width: 1
+    }),
+    fill: new ol.style.Fill({
+      color: 'rgba(255, 255, 0, 0.1)'
+    })
+  }),
+  'Polygon': new ol.style.Style({
+    stroke: new ol.style.Stroke({
+      color: 'blue',
+      lineDash: [4],
+      width: 3
+    }),
+    fill: new ol.style.Fill({
+      color: 'rgba(0, 0, 255, 0.1)'
+    })
+  }),
+  'GeometryCollection': new ol.style.Style({
+    stroke: new ol.style.Stroke({
+      color: 'magenta',
+      width: 2
+    }),
+    fill: new ol.style.Fill({
+      color: 'magenta'
+    }),
+    image: new ol.style.Circle({
+      radius: 10,
+      fill: null,
+      stroke: new ol.style.Stroke({
+        color: 'magenta'
+      })
+    })
+  }),
+  'Circle': new ol.style.Style({
+    stroke: new ol.style.Stroke({
+      color: 'red',
+      width: 2
+    }),
+    fill: new ol.style.Fill({
+      color: 'rgba(255,0,0,0.2)'
+    })
+  })
+};
+
+function Controller() {
+  this.fileInput = document.querySelector('#fileInput');
+}
+
+Controller.prototype.onLoadFile = function(file) {
+};
+
+Controller.prototype.bind = function() {
+  console.log(this);
+  this.fileInput.addEventListener('change', function(e) {
+    this.onLoadFile(this.fileInput.files[0]);
+  }.bind(this));
+
+  var map = new ol.Map({
+    target: 'map',
+    layers: [
+      new ol.layer.Tile({
+        source: new ol.source.OSM()
+      })
+    ],
+    view: new ol.View({
+      center: ol.proj.fromLonLat([0, 0]),
+      zoom: 4,
+      projection: 'EPSG:4326'
+    })
+  });
+
+  var styleFunction = function(feature) {
+    return styles[feature.getGeometry().getType()];
+  };
+
+  shp("http://localhost:8000/gis-upir/data/geobase_montreal_map/GEOBASE_MTL").then(function(geojson){
+      var vectorSource = new ol.source.Vector({
+        features: (new ol.format.GeoJSON()).readFeatures(geojson)
+      });
+      var vectorLayer = new ol.layer.Vector({
+        source: vectorSource,
+        style: styleFunction
+      });
+      map.addLayer(vectorLayer);
+      console.log(geojson);
+  });
+};
+
+document.addEventListener('DOMContentLoaded', function() {
+  var contr = new Controller();
+  contr.bind();
+});
+
+</script>
+</head>
+
+<body>
+  <div>
+    <div id="map" style="width: 100%, height: 400px"></div>
+  </div>
+  <div>
+    <input id="fileInput" type="file">
+  </div>
+</body>
+</html>
