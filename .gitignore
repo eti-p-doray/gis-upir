@@ -1,3 +1,7 @@
+#buil folder
+release/*
+debug/*
+
 # Compiled Object files
 *.slo
 *.lo
