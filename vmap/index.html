@@ -83,20 +83,8 @@ var styles = {
   })
 };
 
-function Controller() {
-  this.fileInput = document.querySelector('#fileInput');
-}
-
-Controller.prototype.onLoadFile = function(file) {
-};
-
-Controller.prototype.bind = function() {
-  console.log(this);
-  this.fileInput.addEventListener('change', function(e) {
-    this.onLoadFile(this.fileInput.files[0]);
-  }.bind(this));
-
-  var map = new ol.Map({
+function Map() {
+  this.map = new ol.Map({
     target: 'map',
     layers: [
       new ol.layer.Tile({
@@ -109,22 +97,67 @@ Controller.prototype.bind = function() {
       projection: 'EPSG:4326'
     })
   });
+}
 
+var color = [
+  'green',
+  'blue',
+  'red',
+  'orange',
+  'purple',
+  'brown',
+  'black',
+  'yellow',
+  'fuchsia'
+];
+
+Map.prototype.addLayer = function(geojson) {
+  console.log(color.length);
   var styleFunction = function(feature) {
-    return styles[feature.getGeometry().getType()];
-  };
+    var st = new ol.style.Style({
+      stroke: new ol.style.Stroke({
+        color: color[feature.getProperties().CLASSE],
+        width: 1
+      })
+    });
+    return st;
+  }
 
-  shp("http://localhost:8000/gis-upir/data/geobase_montreal_map/GEOBASE_MTL").then(function(geojson){
-      var vectorSource = new ol.source.Vector({
-        features: (new ol.format.GeoJSON()).readFeatures(geojson)
-      });
-      var vectorLayer = new ol.layer.Vector({
-        source: vectorSource,
-        style: styleFunction
-      });
-      map.addLayer(vectorLayer);
-      console.log(geojson);
+  /*var unique = function(v, idx, self) {
+    return self.indexOf(v) === idx;
+  }
+  console.log(geojson.features.map(function(x) {
+    return x.properties.CLASSE;
+  }).filter(unique).sort());*/
+
+  var vectorSource = new ol.source.Vector({
+    features: (new ol.format.GeoJSON()).readFeatures(geojson)
   });
+  var vectorLayer = new ol.layer.Vector({
+    source: vectorSource,
+    style: styleFunction
+  });
+  this.map.addLayer(vectorLayer);
+  console.log(geojson);
+}
+
+Map.prototype.addShp = function(name) {
+  var styleFuntion = function(feature) {
+    return styles[feature.getGeometry().getType()];
+  }
+
+  shp("http://localhost:8000/data/" + name).then(this.addLayer.bind(this));
+}
+
+
+function Controller() {
+  this.fileInput = document.querySelector('#fileInput');
+}
+
+Controller.prototype.bind = function() {
+  this.map = new Map();
+  this.map.addShp("geobase_montreal/GEOBASE_MTL");
+  //this.map.addShp("intersections/intersections_on_bike_network_with_change_in_road_type");
 };
 
 document.addEventListener('DOMContentLoaded', function() {
