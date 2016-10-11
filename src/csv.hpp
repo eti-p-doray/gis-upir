@@ -4,6 +4,7 @@
 #include <boost/spirit/include/qi.hpp>
 #include <boost/fusion/include/tuple.hpp>
 #include <boost/spirit/include/phoenix_operator.hpp>
+#include <boost/iostreams/device/mapped_file.hpp>
 
 #include "iterator.hpp"
 #include "tuple.hpp"
@@ -135,3 +136,32 @@ template <class It>
 csv_iterator<It> make_csv_iterator(It first, It last, skip_header_t) {
   return {first, last, skip_header};
 }
+
+class csv_source {
+ public:
+
+  class view {
+   public:
+    using iterator = csv_iterator<const char*>;
+
+    view(iterator first) : first_(first) {}
+    iterator begin() const { return first_; }
+    default_sentinel end() const { return {}; }
+
+   private:
+    iterator first_;
+  };
+
+  csv_source(const std::string& path) : file_(path) {}
+
+  std::vector<std::string> header() const;
+  view read() const { 
+    return make_csv_iterator(begin(file_), end(file_)); 
+  }
+  view read(skip_header_t) const {
+    return make_csv_iterator(begin(file_), end(file_), skip_header); 
+  }
+
+ private:
+  boost::iostreams::mapped_file_source file_;
+};
