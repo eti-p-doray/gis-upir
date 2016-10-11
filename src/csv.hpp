@@ -2,16 +2,18 @@
 
 #include <boost/iterator/iterator_facade.hpp>
 #include <boost/spirit/include/qi.hpp>
-#include <boost/fusion/include/tuple.hpp>
 #include <boost/spirit/include/phoenix_operator.hpp>
-#include <boost/iostreams/device/mapped_file.hpp>
 
+#include "mapped_file.hpp"
 #include "iterator.hpp"
 #include "tuple.hpp"
+#include "utility.hpp"
+
+namespace io {
 
 namespace qi = boost::spirit::qi;
 
-struct date {
+struct csv_date {
   int year;
   int month;
   int day;
@@ -19,77 +21,83 @@ struct date {
   int min;
   int sec;
 };
-BOOST_FUSION_ADAPT_STRUCT(
-  date,
-  year,
-  month,
-  day,
-  hour,
-  min,
-  sec
-)
 
 template <typename Iterator>
-struct date_parser : qi::grammar<Iterator, date()> {
-  date_parser() : date_parser::base_type(start) {
+struct csv_date_parser : qi::grammar<Iterator, csv_date()> {
+  csv_date_parser() : csv_date_parser::base_type(start) {
     start %= qi::lexeme[qi::int_ >> '-' >> qi::int_ >> '-' >> qi::int_ >> ' ' >>
                         qi::int_ >> ':' >> qi::int_ >> ':' >> qi::int_];
   }
-
-  qi::rule<Iterator, date()> start;
+  qi::rule<Iterator, csv_date()> start;
 };
-
-template <class It, class T> struct matcher {};
-template <class It> struct matcher<It, double> { using type = qi::double_type;};
-template <class It> struct matcher<It, float> { using type = qi::float_type; };
-template <class It> struct matcher<It, int> { using type = qi::int_type; };
-template <class It> struct matcher<It, date> { using type = date_parser<It>; };
-
-bool iseol(char c) {
-  return c == '\n';
-}
-
-using ignore_t = typename std::remove_reference<decltype(std::ignore)>::type;
-constexpr struct skip_header_t {} skip_header {};
 
 template <class It>
 class csv_row {
  public:
+  class reference {
+   public:
+    reference(It first, It last)
+        : first_(first), last_(last) {}
+
+    operator int() const { return extract<double, qi::int_type>(); }
+    operator double() const { return extract<double, qi::double_type>(); }
+    operator csv_date() const { return extract<csv_date, csv_date_parser<It>>(); }
+    operator std::string() const { return std::string(first_, last_); }
+
+   private:
+    template <class T, class P>
+    T extract() const {
+      using boost::phoenix::ref; using qi::_1;
+      T v = {};
+      P parser;
+      qi::phrase_parse(first_, last_, parser[ref(v) = _1], qi::space);
+      return v;
+    }
+
+    It first_;
+    It last_;
+  };
+
+  class iterator :
+      public boost::iterator_facade<iterator, reference,
+                                  std::forward_iterator_tag,
+                                  reference> {
+   public:
+    iterator(It first, It last)
+      : current_(first), next_(first), last_(last) {
+      increment();
+    }
+
+   private:
+    friend class boost::iterator_core_access;
+    friend class default_sentinel;
+    
+    reference dereference() const {
+      return {current_, next_};
+    }
+    void increment() {
+      current_ = next_;
+      while (next_ != last_ && !iscomma(*next_) && !iseol(*next_)) {
+        ++next_;
+      } if (iscomma(*next_)) ++next_;
+    }
+    bool equal(default_sentinel that) const {
+      return current_ == next_;
+    }
+
+    It current_;
+    It next_;
+    It last_;
+  };
+
   csv_row() = default;
   csv_row(It first, It last)
       : first_(first), last_(last) {}
-  
-  template <class... Args>
-  std::tuple<Args...> extract() const {
-    std::tuple<Args...> t;
-    tuple_for_each(t, parser{first_, last_});
-    return t;
-  }
-  template <class Arg>
-  Arg extract() const {
-    Arg v;
-    parser{first_, last_}(v);
-    return v;
-  }
+
+  iterator begin() const { return {first_, last_}; }
+  default_sentinel end() const { return {}; }
 
  private:
-  struct parser {
-    It current;
-    It last;
-    template <class T>
-    void operator()(T& value) {
-      using boost::phoenix::ref; using qi::_1;
-      typename matcher<It, T>::type m;
-      qi::phrase_parse(current, last,
-        m[ref(value) = _1] >> (',' | qi::eol), qi::space);
-    }
-    void operator()(ignore_t&) {
-      while (current != last && *current != ',' && !iseol(*current)) {
-        ++current;
-      } ++current;
-    }
-  };
- 
   It first_ = nullptr;
   It last_ = nullptr;
 };
@@ -116,7 +124,7 @@ class csv_iterator :
     return {current_, last_};
   }
   void increment() {
-    while (!iseol(*current_) && current_ != last_) {
+    while (current_ != last_ && !iseol(*current_)) {
       ++current_;
     } if (current_ != last_) ++current_;
   }
@@ -165,3 +173,15 @@ class csv_source {
  private:
   boost::iostreams::mapped_file_source file_;
 };
+
+}
+
+BOOST_FUSION_ADAPT_STRUCT(
+  io::csv_date,
+  year,
+  month,
+  day,
+  hour,
+  min,
+  sec
+)

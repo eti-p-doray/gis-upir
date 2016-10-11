@@ -4,6 +4,8 @@
 
 #include <boost/iterator/iterator_facade.hpp>
 
+namespace io {
+
 class default_sentinel :
     public boost::iterator_facade<default_sentinel, const int,
                                   std::forward_iterator_tag> {
@@ -24,3 +26,5 @@ class default_sentinel :
   }
 
 };
+
+}
