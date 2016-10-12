@@ -1,6 +1,8 @@
 #pragma once
 
 #include <boost/iterator/iterator_facade.hpp>
+#include <boost/spirit/include/qi.hpp>
+#include <boost/spirit/include/phoenix_operator.hpp>
 #include <boost/lexical_cast.hpp>
 
 #include "mapped_file.hpp"
@@ -20,20 +22,13 @@ struct csv_date {
 };
 
 template <class It>
-csv_date csv_date_cast(It first, It last) {
-  csv_date date;
-  It next = std::find(first, last, '-');
-  date.year = boost::lexical_cast<int>(first, next);
-  first = next, next = std::find(first, last, '-');
-  date.month = boost::lexical_cast<int>(first, next);
-  first = next, next = std::find_if(first, last, std::isspace);
-  date.day = boost::lexical_cast<int>(first, next);
-  first = next, next = std::find(first, last, ':');
-  date.hour = boost::lexical_cast<int>(first, next);
-  first = next, next = std::find(first, last, ':');
-  date.min = boost::lexical_cast<int>(first, next);
-  date.sec = boost::lexical_cast<int>(first, last);
-}
+struct csv_date_parser : qi::grammar<It, csv_date()> {
+  csv_date_parser() : csv_date_parser::base_type(start) {
+    start %= qi::lexeme[qi::int_ >> '-' >> qi::int_ >> '-' >> qi::int_ >> ' ' >>
+                        qi::int_ >> ':' >> qi::int_ >> ':' >> qi::int_];
+  }
+  qi::rule<It, csv_date()> start;
+};
 
 template <class It>
 class csv_row {
@@ -43,12 +38,21 @@ class csv_row {
     reference(It first, It last)
         : first_(first), last_(last) {}
 
-    operator int() const { return boost::lexical_cast<int>(first_, last_); }
-    operator double() const { return boost::lexical_cast<double>(first_, last_); }
-    operator csv_date() const { return csv_date_cast(first_, last_); }
+    operator int() const { return extract<int, qi::int_type>(); }
+    operator double() const { return extract<double, qi::double_type>(); }
+    operator csv_date() const { return extract<csv_date, csv_date_parser<It>>(); }
     operator std::string() const { return std::string(first_, last_); }
 
    private:
+    template <class T, class P>
+    T extract() const {
+      using boost::phoenix::ref; using qi::_1;
+      T v = {};
+      P parser;
+      qi::phrase_parse(first_, last_, parser[ref(v) = _1], qi::space);
+      return v;
+    }
+
     It first_;
     It last_;
   };
@@ -172,3 +176,13 @@ class csv_source {
 };
 
 }
+
+BOOST_FUSION_ADAPT_STRUCT(
+  io::csv_date,
+  year,
+  month,
+  day,
+  hour,
+  min,
+  sec
+)

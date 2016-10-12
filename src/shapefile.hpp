@@ -67,13 +67,13 @@ struct point {
 struct multipoint_header {
 	double box[4];
 	uint32_t num_points;
-}
+};
 
 struct polyline_header {
 	double box[4];
 	int32_t num_parts;
 	int32_t num_points;
-}
+};
 
 struct multipoint {
 	double box[4];
@@ -237,29 +237,26 @@ struct dbase_date {
 	int day;
 };
 
-namespace boost {
-
-template <>
-dbase_date lexical_cast(const )
-
-}
-
 class dbase_row {
 	class reference {
 	 public:
 	 	operator std::string() const {
 	 		return {first, last_};
 	 	}
-	 	operator int() const { return extract<int>(); }
-	 	operator float() const { return extract<int>(); }
-	 	operator double() const { return extract<int>(); }
-	 	//operator dbase_date() const { return extract<int>(); }
+	 	operator int() const { return extract<int, qi::int_type>(); }
+    operator double() const { return extract<double, qi::double_type>(); }
+    operator dbase_date() const { return extract<csv_date, csv_date_parser<It>>(); }
+    operator std::string() const { return std::string(first_, last_); }
 
 
-	 	template <class T>
-	  T extract() const {
-	    return boost::lexical_cast<T>(first_, last_);
-	  }
+	 	template <class T, class P>
+    T extract() const {
+      using boost::phoenix::ref; using qi::_1;
+      T v = {};
+      P parser;
+      qi::phrase_parse(first_, last_, parser[ref(v) = _1], qi::space);
+      return v;
+    }
 
 	 private:
 	 	const char* first;
@@ -269,7 +266,7 @@ class dbase_row {
 	class iterator {
 
 	};
-}
+};
 
 class dbase_iterator {
 
