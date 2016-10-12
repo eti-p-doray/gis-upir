@@ -9,6 +9,4 @@ bool iscomma(char c) {
   return c == ',';
 }
 
-constexpr struct skip_header_t {} skip_header {};
-
 }

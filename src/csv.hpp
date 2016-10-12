@@ -1,8 +1,7 @@
 #pragma once
 
 #include <boost/iterator/iterator_facade.hpp>
-#include <boost/spirit/include/qi.hpp>
-#include <boost/spirit/include/phoenix_operator.hpp>
+#include <boost/lexical_cast.hpp>
 
 #include "mapped_file.hpp"
 #include "iterator.hpp"
@@ -10,8 +9,6 @@
 #include "utility.hpp"
 
 namespace io {
-
-namespace qi = boost::spirit::qi;
 
 struct csv_date {
   int year;
@@ -22,14 +19,21 @@ struct csv_date {
   int sec;
 };
 
-template <typename Iterator>
-struct csv_date_parser : qi::grammar<Iterator, csv_date()> {
-  csv_date_parser() : csv_date_parser::base_type(start) {
-    start %= qi::lexeme[qi::int_ >> '-' >> qi::int_ >> '-' >> qi::int_ >> ' ' >>
-                        qi::int_ >> ':' >> qi::int_ >> ':' >> qi::int_];
-  }
-  qi::rule<Iterator, csv_date()> start;
-};
+template <class It>
+csv_date csv_date_cast(It first, It last) {
+  csv_date date;
+  It next = std::find(first, last, '-');
+  date.year = boost::lexical_cast<int>(first, next);
+  first = next, next = std::find(first, last, '-');
+  date.month = boost::lexical_cast<int>(first, next);
+  first = next, next = std::find_if(first, last, std::isspace);
+  date.day = boost::lexical_cast<int>(first, next);
+  first = next, next = std::find(first, last, ':');
+  date.hour = boost::lexical_cast<int>(first, next);
+  first = next, next = std::find(first, last, ':');
+  date.min = boost::lexical_cast<int>(first, next);
+  date.sec = boost::lexical_cast<int>(first, last);
+}
 
 template <class It>
 class csv_row {
@@ -39,21 +43,12 @@ class csv_row {
     reference(It first, It last)
         : first_(first), last_(last) {}
 
-    operator int() const { return extract<double, qi::int_type>(); }
-    operator double() const { return extract<double, qi::double_type>(); }
-    operator csv_date() const { return extract<csv_date, csv_date_parser<It>>(); }
+    operator int() const { return boost::lexical_cast<int>(first_, last_); }
+    operator double() const { return boost::lexical_cast<double>(first_, last_); }
+    operator csv_date() const { return csv_date_cast(first_, last_); }
     operator std::string() const { return std::string(first_, last_); }
 
    private:
-    template <class T, class P>
-    T extract() const {
-      using boost::phoenix::ref; using qi::_1;
-      T v = {};
-      P parser;
-      qi::phrase_parse(first_, last_, parser[ref(v) = _1], qi::space);
-      return v;
-    }
-
     It first_;
     It last_;
   };
@@ -77,9 +72,9 @@ class csv_row {
     }
     void increment() {
       current_ = next_;
-      while (next_ != last_ && !iscomma(*next_) && !iseol(*next_)) {
-        ++next_;
-      } if (iscomma(*next_)) ++next_;
+      next_ = std::find_if(next_, last_, 
+        [](char v){return iscomma(v) || iseol(v);})
+      if (iscomma(*next_)) ++next_;
     }
     bool equal(default_sentinel that) const {
       return current_ == next_;
@@ -111,10 +106,6 @@ class csv_iterator :
   csv_iterator() = default;
   csv_iterator(It first, It last)
       : current_(first), last_(last) {}
-  csv_iterator(It first, It last, skip_header_t)
-      : current_(first), last_(last) {
-    increment();
-  }
  
  private:
   friend class boost::iterator_core_access;
@@ -124,9 +115,9 @@ class csv_iterator :
     return {current_, last_};
   }
   void increment() {
-    while (current_ != last_ && !iseol(*current_)) {
-      ++current_;
-    } if (current_ != last_) ++current_;
+    current_ = std::find_if(current_, last_, 
+      [](char v){return iseol(v);});
+    if (current_ != last_) ++current_;
   }
   bool equal(default_sentinel that) const {
     return current_ == last_;
@@ -140,34 +131,40 @@ template <class It>
 csv_iterator<It> make_csv_iterator(It first, It last) {
   return {first, last};
 }
+
 template <class It>
-csv_iterator<It> make_csv_iterator(It first, It last, skip_header_t) {
-  return {first, last, skip_header};
+class csv_view {
+ public:
+  using iterator = csv_iterator<It>;
+
+  view(iterator data) : first_(first) {}
+  view(It first, It last) : first_(first, last) {}
+
+  csv_source(const std::string& path) : file_(path) {}
+
+  std::vector<std::string> header() const;
+  csv_view& skip_header() { 
+    ++first_;
+    return *this;
+  }
+
+  iterator begin() const { return first_; }
+  default_sentinel end() const { return {}; }
+
+ private:
+  iterator first_;
+};
+
+template <class Rng>
+csv_view<It> make_csv_view(const Rng& rng) {
+  return {std::begin(rng), std::end(rng)};
 }
 
 class csv_source {
  public:
 
-  class view {
-   public:
-    using iterator = csv_iterator<const char*>;
-
-    view(iterator first) : first_(first) {}
-    iterator begin() const { return first_; }
-    default_sentinel end() const { return {}; }
-
-   private:
-    iterator first_;
-  };
-
-  csv_source(const std::string& path) : file_(path) {}
-
-  std::vector<std::string> header() const;
-  view read() const { 
+  csv_view<const char*> operator()() const { 
     return make_csv_iterator(begin(file_), end(file_)); 
-  }
-  view read(skip_header_t) const {
-    return make_csv_iterator(begin(file_), end(file_), skip_header); 
   }
 
  private:
@@ -175,13 +172,3 @@ class csv_source {
 };
 
 }
-
-BOOST_FUSION_ADAPT_STRUCT(
-  io::csv_date,
-  year,
-  month,
-  day,
-  hour,
-  min,
-  sec
-)
