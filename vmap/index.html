@@ -112,15 +112,15 @@ var color = [
 ];
 
 Map.prototype.addLayer = function(geojson) {
-  console.log(color.length);
   var styleFunction = function(feature) {
-    var st = new ol.style.Style({
+    /*var st = new ol.style.Style({
       stroke: new ol.style.Stroke({
         color: color[feature.getProperties().CLASSE],
         width: 1
       })
-    });
+    });*/
     return st;
+    return styles[feature.getGeometry().getType()];
   }
 
   /*var unique = function(v, idx, self) {
@@ -156,8 +156,8 @@ function Controller() {
 
 Controller.prototype.bind = function() {
   this.map = new Map();
-  this.map.addShp("geobase_montreal/GEOBASE_MTL");
-  //this.map.addShp("intersections/intersections_on_bike_network_with_change_in_road_type");
+  //this.map.addShp("geobase_montreal/GEOBASE_MTL");
+  this.map.addShp("intersections/intersections_on_bike_network_with_change_in_road_type");
 };
 
 document.addEventListener('DOMContentLoaded', function() {

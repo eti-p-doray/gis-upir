@@ -1,6 +1,7 @@
-#buil folder
+#build folder
 release/*
 debug/*
+bazel-*
 
 # Compiled Object files
 *.slo

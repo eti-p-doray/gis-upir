@@ -1,0 +1,25 @@
+include_pattern = "boost/%s/"
+hdrs_patterns = [
+  "boost/%s.h",
+  "boost/%s.hpp",
+  "boost/%s/**/*.hpp",
+  "boost/%s/**/*.ipp",
+  "boost/%s/**/*.h",
+  "libs/%s/src/*.ipp",
+]
+srcs_patterns = [
+  "libs/%s/src/*.cpp",
+]
+
+cc_library(
+  name = "iostreams",
+  visibility = ["//visibility:public"],
+  includes = [".", include_pattern % "iostreams"],
+  hdrs = [
+    "boost/iostreams/device/mapped_file.hpp"
+  ],
+  srcs = [
+    "libs/iostreams/src/mapped_file.cpp"
+  ],
+  licenses = ["notice"],
+)

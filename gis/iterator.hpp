@@ -27,4 +27,7 @@ class default_sentinel :
 
 };
 
+template <class Rng>
+using iterator_type = decltype(std::begin(std::declval<Rng>()));
+
 }
