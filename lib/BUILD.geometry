@@ -1,0 +1,9 @@
+cc_library(
+  name = "main",
+  visibility = ["//visibility:public"],
+  includes = [
+    "include/",
+    "include/boost/",
+  ],
+  licenses = ["notice"],
+)

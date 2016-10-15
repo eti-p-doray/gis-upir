@@ -20,6 +20,7 @@ cc_binary(
   srcs = ["main.cpp"],
   deps = [
     ":io",
+    "@geometry//:main"
   ],
 )
 

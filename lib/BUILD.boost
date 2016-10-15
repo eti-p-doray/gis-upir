@@ -14,7 +14,7 @@ srcs_patterns = [
 cc_library(
   name = "iostreams",
   visibility = ["//visibility:public"],
-  includes = [".", include_pattern % "iostreams"],
+  includes = ["."],
   hdrs = [
     "boost/iostreams/device/mapped_file.hpp"
   ],

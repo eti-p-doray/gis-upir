@@ -179,7 +179,7 @@ private:
 } // namespace io
 
 BOOST_FUSION_ADAPT_STRUCT(
-  io::csv::date,
+  ::io::csv::date,
   year,
   month,
   day,

@@ -8,7 +8,8 @@ new_http_archive(
 )
 
 new_git_repository(
-  name = "proj4",
-  remote = "https://github.com/OSGeo/proj.4.git",
-  build_file = "lib/BUILD.proj4",
+  name = "geometry",
+  remote = "https://github.com/boostorg/geometry.git",
+  build_file = "lib/BUILD.geometry",
+  commit = "28c9d63b2ddffd3ad75eb1b1967d967c7794d851"
 )
