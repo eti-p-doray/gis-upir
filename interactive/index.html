@@ -25,17 +25,6 @@ function Map() {
     })
   });
 
-  function getMethods(obj)
-{
-    var res = [];
-    for(var m in obj) {
-        if(typeof obj[m] == "function") {
-            res.push(m)
-        }
-    }
-    return res;
-}
-
   this.selectInteraction = new ol.interaction.Select();
   this.selectInteraction.getFeatures().on("add", function (e) { 
     console.log(e.element.getProperties());
@@ -99,10 +88,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 <body>
   <div>
-    <div id="map" style="width: 100%, height: 400px"></div>
-  </div>
-  <div>
-    <input id="fileInput" type="file">
+    <div id="map" style="width: 100%, height: 100%"></div>
   </div>
 </body>
 </html>

@@ -69,6 +69,9 @@ class request_handler:
 
 s = http_server('localhost', 8000, request_handler())
 s.serve_forever()
-raw_input('Press any key to quit')
+try:
+  raw_input('Press any key to quit')
+except KeyboardInterrupt:
+  pass
 s.stop()
 
