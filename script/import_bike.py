@@ -29,12 +29,15 @@ csvr = csv.reader(open("data/bike_path/Chunk_1_mm.csv"))
 rows = iter(csvr)
 print "header: ", rows.next()
 
+k = 0
 for t in get_trajectories(rows):
 	w.line([t['geometry']])
 	w.record(t['id'])
+	k+=1
+print k
 
 w.save('data/bike_path/Chunk_1')
-prj = open("%s.prj" % 'data/bike_path/Chunk_1', "w") 
+prj = open("%s.prj" % 'data/bike_path/Chunk_1', "w+") 
 epsg = 'GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["Degree",0.017453292519943295]]'
 prj.close()
 
@@ -47,6 +50,6 @@ for i in range(1, 100000):
 	w2.record(row[0])
 
 w2.save('data/bike_path/_Chunk_1')
-prj = open("%s.prj" % 'data/bike_path/_Chunk_1', "w") 
+prj = open("%s.prj" % 'data/bike_path/_Chunk_1', "w+") 
 epsg = 'GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["Degree",0.017453292519943295]]'
 prj.close()

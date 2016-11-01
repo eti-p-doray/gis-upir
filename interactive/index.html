@@ -10,6 +10,31 @@
 <script src="resources/jquery-3.1.1.js"></script>
 <script>
 
+"use strict";
+
+proj4.defs('EPSG:2145', 'PROJCS["NAD83(CSRS98) / MTM zone 8 (deprecated)",GEOGCS["NAD83(CSRS98)",DATUM["D_North_American_1983_CSRS98",SPHEROID["GRS_1980",6378137,298.257222101]],PRIMEM["Greenwich",0],UNIT["Degree",0.017453292519943295]],PROJECTION["Transverse_Mercator"],PARAMETER["latitude_of_origin",0],PARAMETER["central_meridian",-73.5],PARAMETER["scale_factor",0.9999],PARAMETER["false_easting",304800],PARAMETER["false_northing",0],UNIT["Meter",1]]');
+
+var strokes = {
+  road: new ol.style.Stroke({
+    color: 'blue', width: 1.0
+  }),
+  cycling: new ol.style.Stroke({
+    color: 'green', width: 1.0
+  }),
+  highlighted: new ol.style.Stroke({
+    color: 'red', width: 2.0
+  }),
+  selected: new ol.style.Stroke({
+    color: 'yellow', width: 2.0
+  })
+};
+var styles = {
+  road: new ol.style.Style({stroke: strokes.road}),
+  cycling: new ol.style.Style({stroke: strokes.cycling}),
+  highlighted: new ol.style.Style({stroke: strokes.highlighted}),
+  selected: new ol.style.Style({stroke: strokes.selected})
+};
+
 function Map() {
   this.map = new ol.Map({
     target: 'map',
@@ -24,30 +49,56 @@ function Map() {
       projection: 'EPSG:4326'
     })
   });
-
-  this.selectInteraction = new ol.interaction.Select();
-  this.selectInteraction.getFeatures().on("add", function (e) { 
-    console.log(e.element.getProperties());
-  });
-  this.map.addInteraction(this.selectInteraction);
 }
 
-Map.prototype.addLayer = function(geojson, styleFunction) {
-  var vectorSource = new ol.source.Vector({
-    features: (new ol.format.GeoJSON()).readFeatures(geojson)
-  });
+Map.prototype.addInteraction = function(interaction) {
+  this.map.addInteraction(interaction);
+}
+
+Map.prototype.removeInteraction = function(interaction) {
+  this.map.removeInteraction(interaction);
+}
+
+Map.prototype.addLayer = function(vector, s) {
+  vector.index = {};
+  //vector.getFeatures().forEach(function(d,i){ vector.index[d.getProperties().edge_id] = i; });
   var vectorLayer = new ol.layer.Vector({
-    source: vectorSource,
-    style: styleFunction
+    source: vector,
+    style: s
   });
   this.map.addLayer(vectorLayer);
-  console.log(geojson);
+  return vectorLayer;
 }
 
-Map.prototype.addShp = function(name, styleFunction) {
-  shp("http://localhost:8000/data/" + name).then(function(geojson){
-    this.addLayer(geojson, styleFunction);
+Map.prototype.addShp = function(name, style) {
+  var deferred = new $.Deferred();
+  shp(name).then(function(geojson){
+    var vectorSource = new ol.source.Vector({
+      features: (new ol.format.GeoJSON()).readFeatures(geojson)
+    });
+    var vl = this.addLayer(vectorSource, style);
+    deferred.resolve(vl);
   }.bind(this));
+  return deferred.promise();
+}
+
+Map.prototype.addGeojson = function(name, style) {
+  var deferred = new $.Deferred();
+  /*$.ajax({ url: name, dataType: "json" }).then(function(geojson){
+    var vectorSource = new ol.source.Vector({
+      features: (new ol.format.GeoJSON()).readFeatures(geojson, {featureProjection: 'EPSG:4326'})
+    });
+    var vl = this.addLayer(vectorSource, style);
+    deferred.resolve(vl);
+  }.bind(this));*/
+  
+  var vectorSource = new ol.source.Vector({
+    url:name,
+    format: new ol.format.GeoJSON()
+    });
+  var vl = this.addLayer(vectorSource, style);
+  deferred.resolve(vl);
+  return deferred.promise();
 }
 
 
@@ -57,30 +108,65 @@ function Controller() {
 
 Controller.prototype.bind = function() {
   this.map = new Map();
-  this.map.addShp("geobase_montreal/GEOBASE_MTL", function(feature) {
-    return new ol.style.Style({
-      stroke: new ol.style.Stroke({
-        color: 'green',
-        width: 1
-      })
+
+  var addSelectInteraction = function(vector, index){
+    var select = new ol.interaction.Select();
+    var features = vector.getSource().getFeatures();
+    var position = vector.getSource().index;
+    var selected = [];
+    select.getFeatures().on("add",  function(e){
+      var visit = function(i){
+        //console.log(index[0].road[i]);
+        index[0].road[i].forEach(function(j){
+          if (j == e.element.getProperties().id) return;
+          var f = features[position[j]];
+          f.setStyle(styles.highlighted);
+          selected.push(f);
+        });
+      };
+      visit(e.element.getProperties().i);
+      visit(e.element.getProperties().j);
+      index[0].neighbors[e.element.getProperties().i].forEach(visit);
+      index[0].neighbors[e.element.getProperties().j].forEach(visit);
+      e.element.setStyle(styles.selected);
     });
-  });
-  this.map.addShp("cycling_facilities/Existant_Reseau_cyclable_2013_polyline", function(feature) {
-    return new ol.style.Style({
-      stroke: new ol.style.Stroke({
-        color: 'blue',
-        width: 1
-      })
+    select.getFeatures().on("remove",  function(e){
+      var visit = function(f){
+        f.setStyle(vector.getStyle());
+      };
+      selected.forEach(visit);
+      selected = [];
+      e.element.setStyle(vector.getStyle());
     });
-  });
-  this.map.addShp("intersections/intersections_on_bike_network_with_change_in_road_type");
-  //this.map.addShp("bike_path/Chunk_1");
-  //this.map.addShp("bike_path/_Chunk_1");
+    this.map.addInteraction(select);
+  }.bind(this);
+
+  /*var geoFacilitiesPromise = this.map.addGeojson("http://localhost:8000/data/facilities/montreal_geo.json", 
+      styles.cycling );
+  var indexFacilitiesPromise = $.ajax({
+    url:"http://localhost:8000/data/facilities/montreal_index.json",
+    dataType: "json"
+  });*/
+  //$.when(geoFacilitiesPromise, indexFacilitiesPromise).then(addSelectInteraction);
+  //this.map.addShp("intersections/intersections_on_bike_network_with_change_in_road_type");
+  //this.map.addShp("discontinuity/change_of_facility_type");
+  //this.map.addShp("discontinuity/end_of_facility");
+  this.map.addShp("http://localhost:8000/data/osm/mtl");
+
 };
 
 document.addEventListener('DOMContentLoaded', function() {
   var contr = new Controller();
   contr.bind();
+
+  /*$.ajax({
+    url: '/path/find_nearest',
+    type: 'get',
+    data: $.param({x : {z: 2, y: 'hello'}, y: 2}),
+    success: function(result){
+      console.log(result);
+    }
+  });*/
 });
 
 </script>

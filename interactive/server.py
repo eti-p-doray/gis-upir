@@ -1,6 +1,8 @@
 import socket
 import threading
 import sys
+import json
+from jquery_unparam import jquery_unparam
 
 class async_task:
   def __init__(self, f, stop):
@@ -18,6 +20,10 @@ class http_request:
       (self.method,
        self.path,
        self.version) = request_line.split()
+      data_idx = self.path.find('?')
+      self.data = []
+      if data_idx != -1:
+        self.data = jquery_unparam(self.path[data_idx+1:])
       self.ok = True
     else:
       self.ok = False
@@ -52,25 +58,28 @@ class http_server:
 
 class request_handler:
   def __call__(self, request):
-    path = request.path
-    if path == '/':
-      path = 'index.html'
-    elif path.startswith('/data/'):
-      path = '..' + path
+    if request.data:
+      return json.dumps(request.data)
     else:
-      path = path[1:]
-    print path
-    try:
-      with open(path, 'r') as f:
-        return f.read()
-    except IOError:
-      return ''
+      path = request.path
+      if path == '/':
+        path = 'index.html'
+      elif path.startswith('/data/'):
+        path = '..' + path
+      else:
+        path = path[1:]
+      print path
+      try:
+        with open(path, 'r') as f:
+          return f.read()
+      except IOError:
+        return 'dummy'
     
 
 s = http_server('localhost', 8000, request_handler())
 s.serve_forever()
 try:
-  raw_input('Press any key to quit')
+  raw_input()
 except KeyboardInterrupt:
   pass
 s.stop()
