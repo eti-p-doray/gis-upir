@@ -6,15 +6,16 @@ import json
 import shapefile
 
 def load_geobase_road():
-  sf = shapefile.Reader("data/facilities_road/GEOBASE_MTL")
+  sf = shapefile.Reader("data/mtl_geobase/GEOBASE_MTL")
   data = []
   id_field = next(i for i,v in enumerate(sf.fields) if v[0] == "ID_TRC")-1
   for s, r in zip(sf.shapes(), sf.records()):
-    data.append({'geometry': sg.LineString(s.points), 'properties': {'oid': r[id_field], 'highway':}})
+    print s.points
+    data.append({'geometry': sg.LineString(s.points), 'properties': {'oid': r[id_field]}})
   return data
 
 def load_geobase_cycling():
-  sf = shapefile.Reader("data/facilities_cycling/Existant_Reseau_cyclable_2013_polyline")
+  sf = shapefile.Reader("data/mtl_geobase/reseaucyclable2016sept2016")
   data = []
   id_field = next(i for i,v in enumerate(sf.fields) if v[0] == "ID")-1
   for s, r in zip(sf.shapes(), sf.records()):
@@ -29,18 +30,20 @@ def create_graph():
     pickle.dump(n, f)
   return n
 
-n = create_graph()
-with open('data/facilities/montreal.pickle', 'r') as f:
-  n = pickle.load(f)
+#n = create_graph()
+#with open('data/facilities/montreal.pickle', 'r') as f:
+#  n = pickle.load(f)
 
-g = n.graph.copy()
-compress(g)
+#g = n.graph.copy()
+#compress(g)
 
-with open('data/facilities/montreal_geo.json', 'w+') as f:
-  json.dump(make_geojson(g), f, indent=2)
+load_geobase_road()
 
-with open('data/facilities/montreal_index.json', 'w+') as f:
-  json.dump(make_index(g), f, indent=2)
+#with open('data/facilities/mtl_geobase.json', 'w+') as f:
+#  json.dump(make_geojson(g), f, indent=2)
+
+#with open('data/facilities/montreal_index.json', 'w+') as f:
+#  json.dump(make_index(g), f, indent=2)
 
 #make_shp(g).save('data/facilities/montreal_geo')
 print "done"

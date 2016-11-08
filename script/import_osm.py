@@ -4,21 +4,15 @@ import itertools
 import json
 import pickle
 import sys, getopt
-
-def peek(iterable):
-  try:
-    first = next(iterable)
-  except StopIteration:
-    return None
-  return first, itertools.chain([first], iterable)
-
-def empty(iterable):
-  return peek(iterable) is None
+import pyproj as proj
+from utility import *
 
 def load_osm(tree):
   root = tree.getroot()
   data = {'nodes':{}, 'ways':{}}
   used_nodes = sets.Set()
+  srcProj = proj.Proj(init='epsg:4326')
+  dstProj = proj.Proj(init='epsg:2145')
   for e in root:
     nodes = e.findall('nd')
     tags = e.findall('tag')
@@ -26,7 +20,7 @@ def load_osm(tree):
       continue
     id = int(e.attrib['id'])
     if e.tag == 'node':
-      coord = [float(e.attrib['lon']), float(e.attrib['lat'])]
+      coord = proj.transform(srcProj, dstProj, float(e.attrib['lon']), float(e.attrib['lat']))
       data['nodes'][id] = {'geometry':coord}
 
     if e.tag == 'way':

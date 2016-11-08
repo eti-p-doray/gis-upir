@@ -12,7 +12,7 @@
 
 "use strict";
 
-proj4.defs('EPSG:2145', 'PROJCS["NAD83(CSRS98) / MTM zone 8 (deprecated)",GEOGCS["NAD83(CSRS98)",DATUM["D_North_American_1983_CSRS98",SPHEROID["GRS_1980",6378137,298.257222101]],PRIMEM["Greenwich",0],UNIT["Degree",0.017453292519943295]],PROJECTION["Transverse_Mercator"],PARAMETER["latitude_of_origin",0],PARAMETER["central_meridian",-73.5],PARAMETER["scale_factor",0.9999],PARAMETER["false_easting",304800],PARAMETER["false_northing",0],UNIT["Meter",1]]');
+proj4.defs('EPSG:2150', 'PROJCS["NAD83(CSRS98) / MTM zone 8 (deprecated)",GEOGCS["NAD83(CSRS98)",DATUM["D_North_American_1983_CSRS98",SPHEROID["GRS_1980",6378137,298.257222101]],PRIMEM["Greenwich",0],UNIT["Degree",0.017453292519943295]],PROJECTION["Transverse_Mercator"],PARAMETER["latitude_of_origin",0],PARAMETER["central_meridian",-73.5],PARAMETER["scale_factor",0.9999],PARAMETER["false_easting",304800],PARAMETER["false_northing",0],UNIT["Meter",1]]');
 
 var strokes = {
   road: new ol.style.Stroke({
@@ -32,7 +32,10 @@ var styles = {
   road: new ol.style.Style({stroke: strokes.road}),
   cycling: new ol.style.Style({stroke: strokes.cycling}),
   highlighted: new ol.style.Style({stroke: strokes.highlighted}),
-  selected: new ol.style.Style({stroke: strokes.selected})
+  selected: new ol.style.Style({stroke: strokes.selected}),
+
+  filtered: new ol.style.Style({stroke: strokes.highlighted}),
+  raw: new ol.style.Style({stroke: strokes.cycling})
 };
 
 function Map() {
@@ -60,13 +63,14 @@ Map.prototype.removeInteraction = function(interaction) {
 }
 
 Map.prototype.addLayer = function(vector, s) {
-  vector.index = {};
+  //vector.index = {};
   //vector.getFeatures().forEach(function(d,i){ vector.index[d.getProperties().edge_id] = i; });
   var vectorLayer = new ol.layer.Vector({
     source: vector,
     style: s
   });
   this.map.addLayer(vectorLayer);
+  console.log(vectorLayer.getSource().getFeatures());
   return vectorLayer;
 }
 
@@ -84,20 +88,21 @@ Map.prototype.addShp = function(name, style) {
 
 Map.prototype.addGeojson = function(name, style) {
   var deferred = new $.Deferred();
-  /*$.ajax({ url: name, dataType: "json" }).then(function(geojson){
+  $.ajax({ url: name, dataType: "json" }).then(function(geojson){
+    console.log(geojson);
     var vectorSource = new ol.source.Vector({
       features: (new ol.format.GeoJSON()).readFeatures(geojson, {featureProjection: 'EPSG:4326'})
     });
     var vl = this.addLayer(vectorSource, style);
     deferred.resolve(vl);
-  }.bind(this));*/
+  }.bind(this));
   
-  var vectorSource = new ol.source.Vector({
+  /*var vectorSource = new ol.source.Vector({
     url:name,
     format: new ol.format.GeoJSON()
     });
   var vl = this.addLayer(vectorSource, style);
-  deferred.resolve(vl);
+  deferred.resolve(vl);*/
   return deferred.promise();
 }
 
@@ -141,6 +146,14 @@ Controller.prototype.bind = function() {
     this.map.addInteraction(select);
   }.bind(this);
 
+  var addSelect = function(vector){
+    var select = new ol.interaction.Select();
+    select.getFeatures().on("add",  function(e){
+      console.log(e.element.getProperties());
+    });
+    this.map.addInteraction(select);
+  }.bind(this);
+
   /*var geoFacilitiesPromise = this.map.addGeojson("http://localhost:8000/data/facilities/montreal_geo.json", 
       styles.cycling );
   var indexFacilitiesPromise = $.ajax({
@@ -151,7 +164,14 @@ Controller.prototype.bind = function() {
   //this.map.addShp("intersections/intersections_on_bike_network_with_change_in_road_type");
   //this.map.addShp("discontinuity/change_of_facility_type");
   //this.map.addShp("discontinuity/end_of_facility");
-  this.map.addShp("http://localhost:8000/data/osm/mtl");
+  this.map.addGeojson("http://localhost:8000/data/osm/small.json");
+  this.map.addGeojson("http://localhost:8000/data/bike_path/1_filtered.json", function(feature) {
+      if (feature.getProperties().type == 'f') {
+        return styles.filtered;
+      } else {
+        return styles.raw;
+      }
+    }).then(addSelect);
 
 };
 

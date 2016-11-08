@@ -16,9 +16,9 @@ def main(argv):
   g = fg.FacilityGraph()
   g.import_osm(data)
   g.compress()
-  #with open(outputfile, 'w+') as f:
-  #  json.dump(g.export_geojson(4326), f)
-  g.export_shp().save(outputfile)
+  with open(outputfile, 'w+') as f:
+    json.dump(g.export_geojson(2150), f, indent=2)
+  #g.export_shp().save(outputfile)
 
 if __name__ == "__main__":
   main(sys.argv[1:])

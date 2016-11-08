@@ -1,35 +1,12 @@
-import itertools
 import shapefile
 import rtree
 import networkx as nx
 import shapely.geometry as sg
 import geojson as gj
-import pickle
 import collections
-
-def pairwise(iterable):
-  a, b = itertools.tee(iterable)
-  next(b, None)
-  return itertools.izip(a, b)
-
-def peek(iterable):
-  try:
-    first = next(iterable)
-  except StopIteration:
-    return None
-  return first, itertools.chain([first], iterable)
-
-def xor(a, b):
-  return bool(a) ^ bool(b)
-
-def empty(iterable):
-  return peek(iterable) is None
-
-def merge_dicts(*dict_args):
-  result = {}
-  for dictionary in dict_args:
-    result.update(dictionary)
-  return result
+import sys
+sys.path.append('.')
+from utility import *
 
 def node_collapse(g, n, i, j):
   g.add_edge(i, j, 
@@ -84,7 +61,7 @@ def make_shp(g):
       sf.record(first= i, last= j, way_id= p['way_id'], edge_id= p['edge_id'])
   return sf
 
-class FacilityGraph:
+class SpatialGraph:
   def __init__(self):
     self.spatial_idx = rtree.index.Index()
     self.graph = nx.Graph()
@@ -107,8 +84,8 @@ class FacilityGraph:
             geometry = [],
             order = True)
           idx += 1
-        inter = self.spatial_idx.intersection(g.buffer(distance_threshold).bounds)
-        for k in inter:
+        nodes = self.spatial_node_idx.intersection(g.buffer(distance_threshold).bounds)
+        for k in nodes:
           if (g.distance(self.graph.node[k]['geometry']) <= distance_threshold and
               k != previous_idx):
             self.graph.add_edge(current_idx, k, 
@@ -116,28 +93,33 @@ class FacilityGraph:
               edge_id = idx)
             idx += 1
 
-        self.spatial_idx.insert(current_idx, g.bounds)
+        self.spatial_node_idx.insert(current_idx, g.bounds)
         previous_idx = current_idx
 
   def import_osm(self, data):
-    for id, n in data['nodes'].iteritems():
-      self.graph.add_node(id, geometry = sg.Point(n['geometry']))
+    for i, n in data['nodes'].iteritems():
+      self.graph.add_node(i, geometry = sg.Point(n['geometry']))
     idx = 0
-    for id, w in data['ways'].iteritems():
-      self.metadata[id] = w['tags']
+    for i, w in data['ways'].iteritems():
+      self.metadata[i] = w['tags']
       for i,j in pairwise(w['nodes']):
         self.graph.add_edge(i, j,
-          way_id = id,
+          way_id = i,
           edge_id = idx,
           type = 'way',
           order = i < j, 
           geometry = [])
         idx += 1
 
-  def build_spatial_index(self):
-    self.spatial_idx = rtree.index.Index()
-    for n,p in self.graph.nodes(data=True):
-      self.spatial_idx.insert(n, p['geometry'].bounds)
+  def build_spatial_node_index(self):
+    self.spatial_node_idx = rtree.index.Index()
+    for n,p in self.graph.nodes_iter(data=True):
+      self.spatial_node_idx.insert(n, p['geometry'].bounds)
+
+  def build_spatial_edge_index(self):
+    self.spatial_edge_idx = rtree.index.Index()
+    for k,(i,j) in enumerate(self.graph.edges_iter()):
+      self.spatial_edge_idx.insert(k, self.way((i, j)).bounds, obj=(i,j))
 
   def compress(self):
     compress_graph(self.graph)
@@ -157,24 +139,37 @@ class FacilityGraph:
       index['metadata'][p['way_id']] = self.metadata[p['way_id']]
     return index
 
-  def neighbors(n):
+  def neighbors(self, n):
     return self.graph.neighbors(n)
 
-  def way(i, j):
-    if xor(i > j, self.graph[i][j]['order'] == False):
-      i, j = j, i
-    return sg.mapping(sg.LineString([self.graph.node[i]['geometry']] + p['geometry'] + [self.graph.node[j]['geometry']]))
+  def node_intersection(self, bounds):
+    return self.spatial_node_idx.intersection(bounds)
+
+  def edge_intersection(self, bounds):
+    return self.spatial_edge_idx.intersection(bounds, objects=True)
+
+  def direction(self, (i, j)):
+    return xor(i > j, self.graph[i][j]['order'])
+
+  def orientate(self, (i,j)):
+    if self.direction((i,j)) == False:
+      return j,i
+    return i,j
+
+  def way(self, (i, j)):
+    i,j = self.orientate((i,j))
+    return sg.LineString([self.graph.node[i]['geometry']] + self.graph[i][j]['geometry'] + [self.graph.node[j]['geometry']])
 
   def export_shp(self):
     return make_shp(self.graph)
   def export_geojson(self, epsg):
     return make_geojson(self.graph, epsg)
 
-  def __getstate__(self):
+  """def __getstate__(self):
     odict = self.__dict__.copy()
     del odict['spatial_idx']
     return odict
 
   def __setstate__(self, dict):
     self.__dict__.update(dict)
-    build_spatial_index()
+    build_spatial_index()"""

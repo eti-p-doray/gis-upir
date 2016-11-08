@@ -1,38 +1,31 @@
-import heapq
-import pickle
+from priority_queue import *
 
-class PriorityQueue:
-  def __init__(self):
-    self.elements = []
-  
-  def empty(self):
-    return len(self.elements) == 0
-  
-  def put(self, item, priority):
-    heapq.heappush(self.elements, (priority, item))
-  
-  def get(self):
-    return heapq.heappop(self.elements)[1]
-
-def a_star_search(g, start, goal, cost, heuristic):
+def a_star_search(g, starts, goals, cost, heuristic):
   frontier = PriorityQueue()
-  frontier.put(start, 0)
   came_from = {}
   cost_so_far = {}
-  came_from[start] = None
-  cost_so_far[start] = 0
+  remaining_goal = 0
+  for s in starts:
+    frontier.put(s[0], s[1])
+    came_from[s[0]] = None
+    cost_so_far[s[0]] = s[1]
+    #state_so_far = s[2]
   
   while not frontier.empty():
     current = frontier.get()
-      
-    if current == goal:
-      break
+    
+    if current in goals:
+      remaining_goal -= 1
+      if remaining_goal == 0:
+        break
       
     for next in g.neighbors(current):
-      new_cost = cost_so_far[current] + cost(g, current, next)
+      edge_cost = cost(g, current, next)
+      new_cost = cost_so_far[current] + edge_cost
       if next not in cost_so_far or new_cost < cost_so_far[next]:
         cost_so_far[next] = new_cost
-        priority = new_cost + heuristic(g, next, goal)
+        #state_so_far[next] = state
+        priority = new_cost + heuristic(g, next)
         frontier.put(next, priority)
         came_from[next] = current
   
