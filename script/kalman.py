@@ -27,8 +27,8 @@ def LDL(A):
 
 class KalmanFilter:
   def __init__(self, initial_state, initial_state_covariance):
-    self.x = np.asarray(initial_state)
-    self.P = np.asmatrix(initial_state_covariance)
+    self.x = np.array(initial_state)
+    self.P = np.matrix(initial_state_covariance)
 
   def time_update(self, F, Q):
     self.x = np.dot(np.asarray(F), self.x)
@@ -106,6 +106,7 @@ class KalmanFilter:
     return self.x, self.P
 
   def project_constraint(self, D, d):
+    D = np.asmatrix(D)
     U = self.P * D.T
     z = d - np.dot(np.asarray(D), self.x)
     S = np.linalg.inv(D * U)

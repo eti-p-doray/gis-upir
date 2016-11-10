@@ -6,6 +6,9 @@ class PriorityQueue:
   
   def empty(self):
     return len(self.elements) == 0
+
+  def size(self):
+    return len(self.elements)
   
   def put(self, item, priority):
     heapq.heappush(self.elements, (priority, item))

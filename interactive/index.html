@@ -25,7 +25,7 @@ var strokes = {
     color: 'red', width: 2.0
   }),
   selected: new ol.style.Stroke({
-    color: 'yellow', width: 2.0
+    color: 'yellow', width: 4.0
   })
 };
 var styles = {
@@ -164,12 +164,14 @@ Controller.prototype.bind = function() {
   //this.map.addShp("intersections/intersections_on_bike_network_with_change_in_road_type");
   //this.map.addShp("discontinuity/change_of_facility_type");
   //this.map.addShp("discontinuity/end_of_facility");
-  this.map.addGeojson("http://localhost:8000/data/osm/small.json");
+  this.map.addGeojson("http://localhost:8000/data/osm/jean-drapeau.json");
   this.map.addGeojson("http://localhost:8000/data/bike_path/1_filtered.json", function(feature) {
       if (feature.getProperties().type == 'f') {
         return styles.filtered;
-      } else {
+      } else if (feature.getProperties().type == 'r') {
         return styles.raw;
+      } else {
+        return styles.selected;
       }
     }).then(addSelect);
 

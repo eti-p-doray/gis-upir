@@ -24,8 +24,8 @@ def load_osm(tree):
       data['nodes'][id] = {'geometry':coord}
 
     if e.tag == 'way':
-      highway = (x for x in tags if x.attrib['k'] == 'highway')
-      if not empty(highway):
+      highway = peek(x for x in tags if x.attrib['k'] == 'highway')
+      if highway != None:
         data['ways'][id] = {'nodes':[], 'type':'way', 'tags':{}}
         for i in nodes:
           n = int(i.attrib['ref'])

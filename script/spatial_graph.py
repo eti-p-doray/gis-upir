@@ -4,8 +4,7 @@ import networkx as nx
 import shapely.geometry as sg
 import geojson as gj
 import collections
-import sys
-sys.path.append('.')
+
 from utility import *
 
 def node_collapse(g, n, i, j):
@@ -119,7 +118,7 @@ class SpatialGraph:
   def build_spatial_edge_index(self):
     self.spatial_edge_idx = rtree.index.Index()
     for k,(i,j) in enumerate(self.graph.edges_iter()):
-      self.spatial_edge_idx.insert(k, self.way((i, j)).bounds, obj=(i,j))
+      self.spatial_edge_idx.insert(k, sg.LineString(self.way((i, j))).bounds, obj=(i,j))
 
   def compress(self):
     compress_graph(self.graph)
@@ -157,8 +156,14 @@ class SpatialGraph:
     return i,j
 
   def way(self, (i, j)):
-    i,j = self.orientate((i,j))
-    return sg.LineString([self.graph.node[i]['geometry']] + self.graph[i][j]['geometry'] + [self.graph.node[j]['geometry']])
+    yield self.graph.node[i]['geometry']
+    if self.direction((i,j)) == False:
+      inner = reversed(self.graph[i][j]['geometry'])
+    else:
+      inner = self.graph[i][j]['geometry']
+    for point in inner:
+      yield point
+    yield self.graph.node[j]['geometry']
 
   def export_shp(self):
     return make_shp(self.graph)
