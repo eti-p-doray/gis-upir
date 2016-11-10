@@ -32,3 +32,6 @@ bazel-*
 *.exe
 *.out
 *.app
+
+# Python
+*.pyc
