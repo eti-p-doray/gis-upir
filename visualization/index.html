@@ -210,6 +210,8 @@ Controller.prototype.bind = function() {
     function(feature) {
       if (feature.getProperties().type == 'state') {
         return styles.smoothed_trajectory; 
+      } else {
+        return null;
       }
     });
 

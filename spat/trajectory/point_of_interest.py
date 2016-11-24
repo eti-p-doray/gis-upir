@@ -1,5 +1,7 @@
 from sklearn import cluster
 from sklearn.neighbors import kneighbors_graph
+import rtree
+import shapely.geometry as sg
 
 import numpy as np
 
@@ -45,41 +47,31 @@ def cluster_trajectories(trajectories):
       result['coord'].append(coord)
       #result['trajectories'].append(index)
 
-  cluster_algorithm = cluster.AffinityPropagation(preference = -1000000.0)
+  cluster_algorithm = cluster.AffinityPropagation(preference = -500000.0)
   result['label'] = cluster_algorithm.fit_predict(result['coord'])
   result['center'] = cluster_algorithm.cluster_centers_indices_
+
+  spatial_idx = rtree.index.Index()
+  for label, center in enumerate(result['center']):
+    coord = result['coord'][center]
+    spatial_idx.insert(label, sg.Point(coord).bounds)
 
   print result['label']
   print result['center'] 
 
+  distance_threshold = 200.0
   for index, trajectory in enumerate(trajectories):
     for state in trajectory['state']:
       coord = state.x[0:2]
-      label = cluster_algorithm.predict([coord])
-      # possibly set threshold
-      if label[0] not in result['trajectories']:
-        result['trajectories'][label[0]] = set([])
-      result['trajectories'][label[0]].add(index)
+      point = sg.Point(coord)
+      pois = spatial_idx.intersection(point.buffer(distance_threshold).bounds)
+      for label in pois:
+        center = sg.Point(result['coord'][result['center'][label]])
+        if center.distance(point) < distance_threshold:
+          if label not in result['trajectories']:
+            result['trajectories'][label] = set([])
+          result['trajectories'][label].add(index)
 
-  # possibly go over all points in trajectories
-  """
-  label_map = {}
-  for l, i in zip(result['label'], result['trajectories']):
-    if l not in label_map:
-      label_map[l] = []
-    label_map[l].append(i)
-
-  for s in label_map:
-    label_map[s] = set(label_map[s])"""
-
-  """od_pair = {}
-  for i in label_map:
-    for j in label_map:
-      if i < j:
-        intersection = label_map[i] & label_map[j]
-        if intersection:
-          print i, j, intersection
-          od_pair[i,j] = intersection"""
 
   return result
 
