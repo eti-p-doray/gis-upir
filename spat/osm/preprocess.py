@@ -1,10 +1,8 @@
-import xml.etree.ElementTree as et
+import json, pickle, xml.etree.ElementTree as et, pyproj as proj
 import sets
 import itertools
-import json
-import pickle
 import sys, getopt
-import pyproj as proj
+
 from utility import *
 
 def load_osm(tree):
@@ -32,7 +30,9 @@ def load_osm(tree):
           data['ways'][id]['nodes'].append(n)
           used_nodes.add(n)
         for p in tags:
-          keys = ['highway', 'cycleway', 'oneway', 'foot', 'bicycle', 'lanes', 'lit', 'width', 'maxspeed', 'name']
+          keys = ['highway', 'cycleway', 'oneway', 
+            'foot', 'bicycle', 'lanes', 'lit', 
+            'width', 'maxspeed', 'name']
           for k in keys:
             if p.attrib['k'] == k:
               data['ways'][id]['tags'][k] = p.attrib['v']
@@ -42,12 +42,27 @@ def load_osm(tree):
   return data
 
 def main(argv):
-  opts, args = getopt.getopt(argv,"hi:o:",["ifile=","ofile="])
+  inputfile = ''
+  outputfile = ''
+  try:
+    opts, args = getopt.getopt(argv,"hi:o:",["ifile=","ofile="])
+  except getopt.GetoptError:
+    print 'preprocess [-i <inputfile>] [-o <outputfile>]'
   for opt, arg in opts:
+    if opt == '-h':
+      print 'preprocess [-i <filteredfile>] [-o <classfile>]'
+      sys.exit()
     if opt in ("-i", "--ifile"):
        inputfile = arg
     elif opt in ("-o", "--ofile"):
        outputfile = arg
+  if inputfile == '' or outputfile == '':
+    print 'preprocess [-i <inputfile>] [-o <outputfile>]'
+    sys.exit()
+
+  print 'input file:', inputfile
+  print 'output file:', outputfile 
+
   tree = et.parse(inputfile)
   data = load_osm(tree)
   with open(outputfile, 'w+') as f:

@@ -16,7 +16,7 @@ def node_collapse(g, n, i, j):
     geometry = g[n][i]['geometry'] + [g.node[n]['geometry']] + g[n][j]['geometry'])
   g.remove_node(n)
 
-def compress_graph(g):
+"""def compress_graph(g):
   for n in g.nodes():
     adj = g.neighbors(n)
     if (len(adj) == 2):
@@ -26,45 +26,21 @@ def compress_graph(g):
       if (g[n][i]['type'] == 'way' and
           g[n][j]['type'] == 'way' and
           g[n][i]['way_id'] == g[n][j]['way_id']):
-        node_collapse(g, n, i, j)
+        print g[n][i]['edge_id'], g[n][j]['edge_id'], g[n][i]['way_id'], g[n][j]['way_id']
+        node_collapse(g, n, i, j)"""
 
-def make_geojson(g, epsg):
-  features = []
-  k = 0
-  for i,j,p in g.edges_iter(data=True):
-    if p['type'] == 'way':
-      if xor(i > j, g[i][j]['order'] == False):
-        i, j = j, i
-      line = sg.mapping(sg.LineString([g.node[i]['geometry']] + p['geometry'] + [g.node[j]['geometry']]))
-      feature = gj.Feature(
-        geometry = line,
-        properties = {'first': i, 'last': j, 'edge_id': p['edge_id'], 'way_id':p['way_id']})
-      features.append(feature)
-  fc = gj.FeatureCollection(features)
-  fc['crs'] = {'type': 'EPSG', 'properties': {'code': epsg}}
-  return fc
-
-def make_shp(g):
-  sf = shapefile.Writer(shapefile.POLYLINE)
-  sf.autoBalance = 1
-  sf.field('first')
-  sf.field('last')
-  sf.field('way_id')
-  sf.field('edge_id')
-  for i,j,p in g.edges(data=True):
-    if p['type'] == 'way':
-      if xor(i > j, g[i][j]['order'] == False):
-        i, j = j, i
-      line = sg.mapping(sg.LineString([g.node[i]['geometry']] + p['geometry'] + [g.node[j]['geometry']]))
-      sf.line(parts=[line['coordinates']])
-      sf.record(first= i, last= j, way_id= p['way_id'], edge_id= p['edge_id'])
-  return sf
 
 class SpatialGraph:
   def __init__(self):
     self.spatial_idx = rtree.index.Index()
     self.graph = nx.Graph()
     self.metadata = {}
+
+  def has_node(self, item):
+    return self.graph.has_node(item)
+
+  def has_edge(self, u, v):
+    return self.graph.has_edge(u, v)
 
   def import_geobase(self, data, distance_threshold = 1.0):
     idx = 0
@@ -99,11 +75,11 @@ class SpatialGraph:
     for i, n in data['nodes'].iteritems():
       self.graph.add_node(i, geometry = sg.Point(n['geometry']))
     idx = 0
-    for i, w in data['ways'].iteritems():
+    for k, w in data['ways'].iteritems():
       self.metadata[i] = w['tags']
       for i,j in pairwise(w['nodes']):
         self.graph.add_edge(i, j,
-          way_id = i,
+          way_id = k,
           edge_id = idx,
           type = 'way',
           order = i < j, 
@@ -120,8 +96,8 @@ class SpatialGraph:
     for k,(i,j) in enumerate(self.graph.edges_iter()):
       self.spatial_edge_idx.insert(k, sg.LineString(self.way((i, j))).bounds, obj=(i,j))
 
-  def compress(self):
-    compress_graph(self.graph)
+  """def compress(self):
+    compress_graph(self.graph)"""
 
   def export_index(self):
     index = {'neighbors':{}, 'way':{}, 'metadata':{}}
@@ -155,6 +131,9 @@ class SpatialGraph:
       return j,i
     return i,j
 
+  def intersection(self, i):
+    return self.graph.node[i]['geometry']
+
   def way(self, (i, j)):
     yield self.graph.node[i]['geometry']
     if self.direction((i,j)) == False:
@@ -165,16 +144,33 @@ class SpatialGraph:
       yield point
     yield self.graph.node[j]['geometry']
 
-  def export_shp(self):
-    return make_shp(self.graph)
-  def export_geojson(self, epsg):
-    return make_geojson(self.graph, epsg)
+  def make_shp(self):
+    sf = shapefile.Writer(shapefile.POLYLINE)
+    sf.autoBalance = 1
+    sf.field('first')
+    sf.field('last')
+    sf.field('way_id')
+    sf.field('id')
+    idx = 0
+    for u, v, p in self.graph.edges(data=True):
+      if p['type'] == 'way':
+        line = sg.mapping(sg.LineString([self.way((u,v))]))
+        sf.line(parts=[line['coordinates']])
+        sf.record(first= u, last= v, way_id= p['way_id'], id= p['edge_id'])
+        idx += 1
+    return sf
 
-  """def __getstate__(self):
-    odict = self.__dict__.copy()
-    del odict['spatial_idx']
-    return odict
-
-  def __setstate__(self, dict):
-    self.__dict__.update(dict)
-    build_spatial_index()"""
+  def make_geojson(self, epsg):
+    features = []
+    idx = 0
+    for u, v, p in g.edges_iter(data=True):
+      if p['type'] == 'way':
+        line = sg.mapping(sg.LineString([self.way((u,v))]))
+        feature = gj.Feature(
+          geometry = line,
+          properties = {'first': u, 'last': v, 'way_id':p['way_id'], 'id': p['edge_id']})
+        features.append(feature)
+        idx += 1
+    fc = gj.FeatureCollection(features)
+    fc['crs'] = {'type': 'EPSG', 'properties': {'code': epsg}}
+    return fc

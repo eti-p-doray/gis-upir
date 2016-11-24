@@ -2,17 +2,25 @@
 <html>
 <head>
 <title>Hello</title>
-<link rel="stylesheet" href="http://openlayers.org/en/v3.18.2/css/ol.css" type="text/css">
-<script src="http://openlayers.org/en/v3.18.2/build/ol.js" type="text/javascript"></script>
-<script src="resources/proj4.js"></script>
-<script src="resources/papaparse.js"></script>
-<script src="resources/shp.min.js"></script>
-<script src="resources/jquery-3.1.1.js"></script>
+<link rel="stylesheet" src="css/ol.css">
+<script src="resources/ol.js" type="text/javascript"></script>
+<script src="resources/proj4.js" type="text/javascript"></script>
+<script src="resources/papaparse.js" type="text/javascript"></script>
+<script src="resources/shp.min.js" type="text/javascript"></script>
+<script src="resources/jquery-3.1.1.js" type="text/javascript"></script>
 <script>
 
 "use strict";
 
 proj4.defs('EPSG:2150', 'PROJCS["NAD83(CSRS98) / MTM zone 8 (deprecated)",GEOGCS["NAD83(CSRS98)",DATUM["D_North_American_1983_CSRS98",SPHEROID["GRS_1980",6378137,298.257222101]],PRIMEM["Greenwich",0],UNIT["Degree",0.017453292519943295]],PROJECTION["Transverse_Mercator"],PARAMETER["latitude_of_origin",0],PARAMETER["central_meridian",-73.5],PARAMETER["scale_factor",0.9999],PARAMETER["false_easting",304800],PARAMETER["false_northing",0],UNIT["Meter",1]]');
+
+function rainbowColor(length, maxLength) {
+  var i = (length * 255 / maxLength);
+  var r = Math.round(Math.sin(0.024 * i + 0) * 127 + 128);
+  var g = Math.round(Math.sin(0.024 * i + 2) * 127 + 128);
+  var b = Math.round(Math.sin(0.024 * i + 4) * 127 + 128);
+  return 'rgb(' + r + ',' + g + ',' + b + ')';
+}
 
 var strokes = {
   road: new ol.style.Stroke({
@@ -22,10 +30,20 @@ var strokes = {
     color: 'green', width: 1.0
   }),
   highlighted: new ol.style.Stroke({
-    color: 'red', width: 2.0
+    color: 'LightSkyBlue', width: 2.0
   }),
   selected: new ol.style.Stroke({
-    color: 'yellow', width: 4.0
+    color: 'LightSkyBlue', width: 2.0
+  }),
+
+  raw_trajectory: new ol.style.Stroke({
+    color: 'DarkGoldenRod', width: 1.0
+  }),
+  smoothed_trajectory: new ol.style.Stroke({
+    color: 'red', width: 1.0
+  }),
+  mm_trajectory: new ol.style.Stroke({
+    color: 'DeepPink ', width: 1.0
   })
 };
 var styles = {
@@ -33,10 +51,23 @@ var styles = {
   cycling: new ol.style.Style({stroke: strokes.cycling}),
   highlighted: new ol.style.Style({stroke: strokes.highlighted}),
   selected: new ol.style.Style({stroke: strokes.selected}),
-
   filtered: new ol.style.Style({stroke: strokes.highlighted}),
-  raw: new ol.style.Style({stroke: strokes.cycling})
+
+  raw_trajectory: new ol.style.Style({stroke: strokes.raw_trajectory}),
+  smoothed_trajectory: new ol.style.Style({stroke: strokes.smoothed_trajectory}),
+  mm_trajectory: new ol.style.Style({stroke: strokes.mm_trajectory}),
 };
+
+function clusterStyle(feature) {
+  return new ol.style.Style({
+    image: new ol.style.Circle({
+      radius: 5,
+      fill: new ol.style.Stroke({
+        color: rainbowColor(feature.getProperties().label, 150)
+      })
+    })
+  })
+}
 
 function Map() {
   this.map = new ol.Map({
@@ -62,15 +93,14 @@ Map.prototype.removeInteraction = function(interaction) {
   this.map.removeInteraction(interaction);
 }
 
-Map.prototype.addLayer = function(vector, s) {
-  //vector.index = {};
-  //vector.getFeatures().forEach(function(d,i){ vector.index[d.getProperties().edge_id] = i; });
+Map.prototype.addLayer = function(vector, style) {
+  vector.index = {};
+  vector.selection = [];
+  vector.getFeatures().forEach(function(d,i){ vector.index[d.getProperties().id] = i; });
   var vectorLayer = new ol.layer.Vector({
-    source: vector,
-    style: s
+    source: vector, style: style
   });
   this.map.addLayer(vectorLayer);
-  console.log(vectorLayer.getSource().getFeatures());
   return vectorLayer;
 }
 
@@ -86,109 +116,112 @@ Map.prototype.addShp = function(name, style) {
   return deferred.promise();
 }
 
-Map.prototype.addGeojson = function(name, style) {
+Map.prototype.addGeojson = function(request, style, name) {
+  name = name || request;
   var deferred = new $.Deferred();
-  $.ajax({ url: name, dataType: "json" }).then(function(geojson){
-    console.log(geojson);
+  $.ajax(request).then(function(geojson){
     var vectorSource = new ol.source.Vector({
       features: (new ol.format.GeoJSON()).readFeatures(geojson, {featureProjection: 'EPSG:4326'})
     });
+    vectorSource.name = name;
     var vl = this.addLayer(vectorSource, style);
     deferred.resolve(vl);
   }.bind(this));
-  
-  /*var vectorSource = new ol.source.Vector({
-    url:name,
-    format: new ol.format.GeoJSON()
-    });
-  var vl = this.addLayer(vectorSource, style);
-  deferred.resolve(vl);*/
   return deferred.promise();
 }
-
 
 function Controller() {
   this.fileInput = document.querySelector('#fileInput');
 }
 
+Controller.prototype.addSelect = function(layer, name) {
+  var select = new ol.interaction.Select();
+  select.getFeatures().on("add",  function(e){
+    console.log(e.element.getProperties());
+  });
+  this.map.addInteraction(select);
+}
+
+Controller.prototype.addSelection = function(layer, selection) {
+  selection.forEach(function(i) {
+    let idx = layer.getSource().index[i];
+    layer.getSource().getFeatures()[idx].setStyle(styles.highlighted);
+    layer.getSource().selection.push(idx);
+  });
+}
+
+Controller.prototype.removeSelection = function(layer) {
+  layer.getSource().selection.forEach(function(i) {
+    layer.getSource().getFeatures()[i].setStyle();
+  });
+}
+
+Controller.prototype.updateSelection = function(layer, selection) {
+  console.log(selection);
+  this.removeSelection(layer);
+  this.addSelection(layer, selection);
+}
+
+Controller.prototype.addClusterSelect = function(trajectoryLayer, clusterLayer) {
+  name = clusterLayer.getSource().name
+  let select = new ol.interaction.Select({
+    layers: function(layer) { return layer.getSource().name == name; }
+  });
+  let features = clusterLayer.getSource().getFeatures();
+  let idx = clusterLayer.getSource().index;
+
+  select.getFeatures().on("add",  function(e){
+    let properties = e.element.getProperties();
+    console.log("add ", properties.label);
+    this.selection.add(properties.label);
+    console.log("add ", [...this.selection]);
+    $.ajax({
+      url: '/cluster/selection', type: 'get',
+      data: $.param({labels : [...this.selection]}),
+      dataType: "json",
+      success: function(features){
+        this.updateSelection(trajectoryLayer, features);
+      }.bind(this)
+    });
+  }.bind(this));
+
+  select.getFeatures().on("remove",  function(e){
+    let properties = e.element.getProperties();
+    console.log("remove ", properties.label);
+    this.selection.delete(properties.label);
+    console.log("remove ", [...this.selection]);
+    $.ajax({
+      url: '/cluster/selection', type: 'get',
+      data: $.param({labels : [...this.selection]}),
+      dataType: "json",
+      success: function(features){
+        this.updateSelection(trajectoryLayer, features);
+      }.bind(this)
+    });
+  }.bind(this));
+  this.map.addInteraction(select);
+}
+
 Controller.prototype.bind = function() {
   this.map = new Map();
+  this.selection = new Set([]);
 
-  var addSelectInteraction = function(vector, index){
-    var select = new ol.interaction.Select();
-    var features = vector.getSource().getFeatures();
-    var position = vector.getSource().index;
-    var selected = [];
-    select.getFeatures().on("add",  function(e){
-      var visit = function(i){
-        //console.log(index[0].road[i]);
-        index[0].road[i].forEach(function(j){
-          if (j == e.element.getProperties().id) return;
-          var f = features[position[j]];
-          f.setStyle(styles.highlighted);
-          selected.push(f);
-        });
-      };
-      visit(e.element.getProperties().i);
-      visit(e.element.getProperties().j);
-      index[0].neighbors[e.element.getProperties().i].forEach(visit);
-      index[0].neighbors[e.element.getProperties().j].forEach(visit);
-      e.element.setStyle(styles.selected);
-    });
-    select.getFeatures().on("remove",  function(e){
-      var visit = function(f){
-        f.setStyle(vector.getStyle());
-      };
-      selected.forEach(visit);
-      selected = [];
-      e.element.setStyle(vector.getStyle());
-    });
-    this.map.addInteraction(select);
-  }.bind(this);
-
-  var addSelect = function(vector){
-    var select = new ol.interaction.Select();
-    select.getFeatures().on("add",  function(e){
-      console.log(e.element.getProperties());
-    });
-    this.map.addInteraction(select);
-  }.bind(this);
-
-  /*var geoFacilitiesPromise = this.map.addGeojson("http://localhost:8000/data/facilities/montreal_geo.json", 
-      styles.cycling );
-  var indexFacilitiesPromise = $.ajax({
-    url:"http://localhost:8000/data/facilities/montreal_index.json",
-    dataType: "json"
-  });*/
-  //$.when(geoFacilitiesPromise, indexFacilitiesPromise).then(addSelectInteraction);
-  //this.map.addShp("intersections/intersections_on_bike_network_with_change_in_road_type");
-  //this.map.addShp("discontinuity/change_of_facility_type");
-  //this.map.addShp("discontinuity/end_of_facility");
-  this.map.addGeojson("http://localhost:8000/data/osm/jean-drapeau.json");
-  this.map.addGeojson("http://localhost:8000/data/bike_path/1_filtered.json", function(feature) {
-      if (feature.getProperties().type == 'f') {
-        return styles.filtered;
-      } else if (feature.getProperties().type == 'r') {
-        return styles.raw;
-      } else {
-        return styles.selected;
+  let trajectoriesPromise = this.map.addGeojson("http://localhost:8000/data/bike_path/smoothed.json",
+    function(feature) {
+      if (feature.getProperties().type == 'state') {
+        return styles.smoothed_trajectory; 
       }
-    }).then(addSelect);
+    });
+
+  let clusterPromise = this.map.addGeojson("cluster/center.json", clusterStyle);
+
+  $.when(trajectoriesPromise, clusterPromise).then(this.addClusterSelect.bind(this));
 
 };
 
 document.addEventListener('DOMContentLoaded', function() {
   var contr = new Controller();
   contr.bind();
-
-  /*$.ajax({
-    url: '/path/find_nearest',
-    type: 'get',
-    data: $.param({x : {z: 2, y: 'hello'}, y: 2}),
-    success: function(result){
-      console.log(result);
-    }
-  });*/
 });
 
 </script>

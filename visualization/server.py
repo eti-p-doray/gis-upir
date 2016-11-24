@@ -1,8 +1,8 @@
-import socket
-import threading
-import sys
-import json
+import socket, sys, getopt, threading, json
 from jquery_unparam import jquery_unparam
+sys.path.append("..")
+
+import spat.trajectory.cluster
 
 class async_task:
   def __init__(self, f, stop):
@@ -57,8 +57,15 @@ class http_server:
     self.sock.close()
 
 class request_handler:
+  def __init__(self, cluster):
+    self.cluster = cluster
+
   def __call__(self, request):
+    if request.path.startswith('/cluster/'):
+      request.path = request.path[len('/cluster/'):]
+      return self.cluster(request)
     if request.data:
+      print request.path, request.data
       return json.dumps(request.data)
     else:
       path = request.path
@@ -74,13 +81,32 @@ class request_handler:
           return f.read()
       except IOError:
         return 'dummy'
-    
 
-s = http_server('localhost', 8000, request_handler())
-s.serve_forever()
-try:
-  raw_input()
-except KeyboardInterrupt:
-  pass
-s.stop()
+
+def main(argv):
+  clusterfile = '../data/bike_path/cluster.pickle'
+  try:
+    opts, args = getopt.getopt(argv,"h",["cluster="])
+  except getopt.GetoptError:
+    print 'server [--cluster = <inputfile>]'
+  for opt, arg in opts:
+    if opt == '-h':
+      print 'server [-- cluster = <inputfile>]'
+      sys.exit()
+    if opt in ("--cluster"):
+       clusterfile = arg
+
+  print 'cluster file:', clusterfile
+
+  cluster = spat.trajectory.cluster.handler(clusterfile)
+  s = http_server('localhost', 8000, request_handler(cluster))
+  s.serve_forever()
+  try:
+    raw_input()
+  except KeyboardInterrupt:
+    pass
+  s.stop()
+
+if __name__ == "__main__":
+  main(sys.argv[1:])
 
