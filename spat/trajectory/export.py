@@ -14,10 +14,10 @@ def make_geojson(trajectories):
       geometry = sg.mapping(sg.LineString(state)), 
       properties = {'id':idx, 'oid':trajectory['id'], 'type':'state'}))
 
-    observations = [o for o in trajectory['observations']]
+    """observations = [o for o in trajectory['observations']]
     features.append(geojson.Feature(
       geometry = sg.mapping(sg.LineString(observations)), 
-      properties = {'id':idx, 'oid':trajectory['id'], 'type':'raw'}))
+      properties = {'id':idx, 'oid':trajectory['id'], 'type':'raw'}))"""
 
   fc = geojson.FeatureCollection(features)
   fc['crs'] = {'type': 'EPSG', 'properties': {'code': 2150}}

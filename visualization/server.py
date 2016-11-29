@@ -1,6 +1,6 @@
 import socket, sys, getopt, threading, json
 from jquery_unparam import jquery_unparam
-sys.path.append("..")
+sys.path.append(".")
 
 import spat.trajectory.cluster
 
@@ -70,9 +70,9 @@ class request_handler:
     else:
       path = request.path
       if path == '/':
-        path = 'index.html'
-      elif path.startswith('/data/'):
-        path = '..' + path
+        path = 'visualization/index.html'
+      elif path.startswith('/resources/'):
+        path = 'visualization/' + path
       else:
         path = path[1:]
       print path
@@ -84,7 +84,7 @@ class request_handler:
 
 
 def main(argv):
-  clusterfile = '../data/bike_path/cluster.pickle'
+  clusterfile = 'data/bike_path/cluster.pickle'
   try:
     opts, args = getopt.getopt(argv,"h",["cluster="])
   except getopt.GetoptError:

@@ -29,12 +29,12 @@ def main(argv):
     data = pickle.load(f)
   g = SpatialGraph()
   g.import_osm(data)
-  #g.compress()
+  g.compress()
   with open(outputfile, 'w+') as f:
     name, ext = os.path.splitext(outputfile)
-    if ext == 'json':
+    if ext == '.json':
       json.dump(g.make_geojson(2150), f, indent=2)
-    elif ext == 'shp'
+    elif ext == '.shp':
       g.make_shp().save(name)
 
 if __name__ == "__main__":

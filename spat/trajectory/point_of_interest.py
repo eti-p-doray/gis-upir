@@ -41,15 +41,22 @@ def extract_poi(trajectory):
 def cluster_trajectories(trajectories):
   result = {'coord': [], 'trajectories': {}}
 
-  for trajectory in trajectories:
+  poi_to_trajectory = []
+  for index, trajectory in enumerate(trajectories):
     for state in extract_poi(trajectory):
       coord = state.x[0:2]
       result['coord'].append(coord)
-      #result['trajectories'].append(index)
+      poi_to_trajectory.append(index)
 
-  cluster_algorithm = cluster.AffinityPropagation(preference = -500000.0)
+  cluster_algorithm = cluster.AffinityPropagation(preference = -100000.0)
   result['label'] = cluster_algorithm.fit_predict(result['coord'])
   result['center'] = cluster_algorithm.cluster_centers_indices_
+
+  for poi, index in enumerate(poi_to_trajectory):
+    label = result['label'][poi]
+    if label not in result['trajectories']:
+      result['trajectories'][label] = set([])
+    result['trajectories'][label].add(index)
 
   spatial_idx = rtree.index.Index()
   for label, center in enumerate(result['center']):
@@ -59,7 +66,7 @@ def cluster_trajectories(trajectories):
   print result['label']
   print result['center'] 
 
-  distance_threshold = 200.0
+  distance_threshold = 100.0
   for index, trajectory in enumerate(trajectories):
     for state in trajectory['state']:
       coord = state.x[0:2]

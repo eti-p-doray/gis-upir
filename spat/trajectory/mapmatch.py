@@ -1,10 +1,16 @@
+import pickle, geojson, json
+import sys, getopt
+import shapely.geometry as sg
+
 from spat.spatial_graph import SpatialGraph
 from spat.path_inference import infer_path
 
-def map_match(trajectories, graph):
+def map_match(trajectories, graph, heuristic_factor):
   for trajectory in trajectories:
-    trajectory['edges'] = list(infer_path(trajectory['state'], graph))
-    yield trajectory
+    if trajectory['id'] == '8014':
+      trajectory['edges'] = list(infer_path(trajectory['state'], trajectory['transition'], graph, heuristic_factor))
+      yield trajectory
+      break
 
 def make_geojson(trajectories, graph):
   features = []
@@ -23,8 +29,9 @@ def make_geojson(trajectories, graph):
 
 def main(argv):
   inputfile = 'data/bike_path/smoothed.pickle'
-  facilityfile = 'data/bike_path/mtl.pickle'
+  facilityfile = 'data/osm/mtl.pickle'
   outputfile = 'data/bike_path/mm.json'
+  heuristic_factor = 30.0
   try:
     opts, args = getopt.getopt(argv,"hi:o:",["ifile=","ofile=","facility="])
   except getopt.GetoptError:
@@ -48,14 +55,16 @@ def main(argv):
     facility = pickle.load(f)
   graph = SpatialGraph()
   graph.import_osm(facility)
+  graph.compress()
+  graph.build_spatial_edge_index()
 
   with open(inputfile, 'r') as f:
     data = pickle.load(f)
 
-  data = map_match(data, graph)
+  data = map_match(data, graph, heuristic_factor)
 
   with open(outputfile, 'w+') as f:
-    json.dump(make_geojson(data), f, indent=2)
+    json.dump(make_geojson(data, graph), f, indent=2)
 
 if __name__ == "__main__":
   main(sys.argv[1:])

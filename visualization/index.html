@@ -35,7 +35,6 @@ var strokes = {
   selected: new ol.style.Stroke({
     color: 'LightSkyBlue', width: 2.0
   }),
-
   raw_trajectory: new ol.style.Stroke({
     color: 'DarkGoldenRod', width: 1.0
   }),
@@ -43,7 +42,7 @@ var strokes = {
     color: 'red', width: 1.0
   }),
   mm_trajectory: new ol.style.Stroke({
-    color: 'DeepPink ', width: 1.0
+    color: 'yellow', width: 4.0
   })
 };
 var styles = {
@@ -85,21 +84,56 @@ function Map() {
   });
 }
 
-Map.prototype.addInteraction = function(interaction) {
-  this.map.addInteraction(interaction);
-}
-
 Map.prototype.removeInteraction = function(interaction) {
   this.map.removeInteraction(interaction);
 }
 
-Map.prototype.addLayer = function(vector, style) {
-  vector.index = {};
-  vector.selection = [];
-  vector.getFeatures().forEach(function(d,i){ vector.index[d.getProperties().id] = i; });
+Map.prototype.addSelectInteraction = 
+    function(options, onSelect, onDeselect) {
+  let select = new ol.interaction.Select(options);
+  select.on('select', function(e) {
+    e.deselected.forEach(function(feature) {
+      let layer = feature.layer;
+      if (layer.name in onDeselect) {
+        var handler = onDeselect[layer.name];
+        handler(feature, layer);
+      }
+    });
+    e.selected.forEach(function(feature) {
+      let layer = select.getLayer(feature);
+      feature.layer = layer;
+      if (layer.name in onSelect) {
+        var handler = onSelect[layer.name];
+        handler(feature, layer);
+      }
+    });
+  });
+  this.map.addInteraction(select);
+  return select;
+}
+
+Map.prototype.setStyle = function(layer, features, style) {
+  $.each(features, function(_, i) {
+    let idx = layer.index[i];
+    layer.getSource().getFeatures()[idx].setStyle(style);
+  });
+}
+
+Map.prototype.removeStyle = function(layer, features) {
+  $.each(features, function(_, i) {
+    let idx = layer.index[i];
+    layer.getSource().getFeatures()[idx].setStyle();
+  });
+}
+
+Map.prototype.addLayer = function(vector, style, name) {
   var vectorLayer = new ol.layer.Vector({
     source: vector, style: style
   });
+  vectorLayer.name = name;
+  vectorLayer.index = {};
+  vector.getFeatures().forEach(
+    function(d,i){ vectorLayer.index[d.getProperties().id] = i; });
   this.map.addLayer(vectorLayer);
   return vectorLayer;
 }
@@ -110,7 +144,7 @@ Map.prototype.addShp = function(name, style) {
     var vectorSource = new ol.source.Vector({
       features: (new ol.format.GeoJSON()).readFeatures(geojson)
     });
-    var vl = this.addLayer(vectorSource, style);
+    var vl = this.addLayer(vectorSource, style, name);
     deferred.resolve(vl);
   }.bind(this));
   return deferred.promise();
@@ -123,8 +157,7 @@ Map.prototype.addGeojson = function(request, style, name) {
     var vectorSource = new ol.source.Vector({
       features: (new ol.format.GeoJSON()).readFeatures(geojson, {featureProjection: 'EPSG:4326'})
     });
-    vectorSource.name = name;
-    var vl = this.addLayer(vectorSource, style);
+    var vl = this.addLayer(vectorSource, style, name);
     deferred.resolve(vl);
   }.bind(this));
   return deferred.promise();
@@ -134,90 +167,64 @@ function Controller() {
   this.fileInput = document.querySelector('#fileInput');
 }
 
-Controller.prototype.addSelect = function(layer, name) {
-  var select = new ol.interaction.Select();
-  select.getFeatures().on("add",  function(e){
-    console.log(e.element.getProperties());
-  });
-  this.map.addInteraction(select);
-}
-
-Controller.prototype.addSelection = function(layer, selection) {
-  selection.forEach(function(i) {
-    let idx = layer.getSource().index[i];
-    layer.getSource().getFeatures()[idx].setStyle(styles.highlighted);
-    layer.getSource().selection.push(idx);
-  });
-}
-
-Controller.prototype.removeSelection = function(layer) {
-  layer.getSource().selection.forEach(function(i) {
-    layer.getSource().getFeatures()[i].setStyle();
+Controller.prototype.updateCluster = function(trajectoryLayer, clusterLayer, interaction) {
+  $.ajax({
+    url: '/cluster/selection', type: 'get',
+    data: $.param({labels : [...this.selection]}),
+    dataType: "json",
+    success: function(features){
+      let exit = $(this.highlighted).not(features);
+      let enter = $(features).not(this.highlighted);
+      this.highlighted = features;
+      this.map.removeStyle(trajectoryLayer, exit);
+      this.map.setStyle(trajectoryLayer, enter, styles.highlighted);
+    }.bind(this)
   });
 }
 
-Controller.prototype.updateSelection = function(layer, selection) {
-  console.log(selection);
-  this.removeSelection(layer);
-  this.addSelection(layer, selection);
-}
+Controller.prototype.addSelectInteractions = 
+    function(trajectoryLayer, clusterLayer) {
+  let onSelect = {};
+  let onDeselect = {};
 
-Controller.prototype.addClusterSelect = function(trajectoryLayer, clusterLayer) {
-  name = clusterLayer.getSource().name
-  let select = new ol.interaction.Select({
-    layers: function(layer) { return layer.getSource().name == name; }
-  });
-  let features = clusterLayer.getSource().getFeatures();
-  let idx = clusterLayer.getSource().index;
-
-  select.getFeatures().on("add",  function(e){
-    let properties = e.element.getProperties();
-    console.log("add ", properties.label);
+  onSelect[clusterLayer.name] = function(feature, layer, interaction) {
+    let properties = feature.getProperties();
     this.selection.add(properties.label);
-    console.log("add ", [...this.selection]);
-    $.ajax({
-      url: '/cluster/selection', type: 'get',
-      data: $.param({labels : [...this.selection]}),
-      dataType: "json",
-      success: function(features){
-        this.updateSelection(trajectoryLayer, features);
-      }.bind(this)
-    });
-  }.bind(this));
-
-  select.getFeatures().on("remove",  function(e){
-    let properties = e.element.getProperties();
-    console.log("remove ", properties.label);
+    this.updateCluster(trajectoryLayer, layer, interaction);
+  }.bind(this);
+  onDeselect[clusterLayer.name] = function(feature, layer, interaction) {
+    let properties = feature.getProperties();
     this.selection.delete(properties.label);
-    console.log("remove ", [...this.selection]);
-    $.ajax({
-      url: '/cluster/selection', type: 'get',
-      data: $.param({labels : [...this.selection]}),
-      dataType: "json",
-      success: function(features){
-        this.updateSelection(trajectoryLayer, features);
-      }.bind(this)
-    });
-  }.bind(this));
-  this.map.addInteraction(select);
+    this.updateCluster(trajectoryLayer, layer, interaction);
+  }.bind(this);
+
+  onSelect[trajectoryLayer.name] = function(feature, layer, interaction) {
+    let properties = feature.getProperties();
+    console.log(properties);
+  }.bind(this);
+
+  this.map.addSelectInteraction({
+
+  }, onSelect, onDeselect);
 }
 
 Controller.prototype.bind = function() {
   this.map = new Map();
   this.selection = new Set([]);
+  this.highlighted = [];
 
-  let trajectoriesPromise = this.map.addGeojson("http://localhost:8000/data/bike_path/smoothed.json",
-    function(feature) {
-      if (feature.getProperties().type == 'state') {
-        return styles.smoothed_trajectory; 
-      } else {
-        return null;
-      }
-    });
+  let trajectoriesPromise = 
+    this.map.addGeojson("http://localhost:8000/data/bike_path/smoothed.json",
+    function(feature) { return styles.smoothed_trajectory; });
 
   let clusterPromise = this.map.addGeojson("cluster/center.json", clusterStyle);
 
-  $.when(trajectoriesPromise, clusterPromise).then(this.addClusterSelect.bind(this));
+  $.when(trajectoriesPromise, clusterPromise).then(this.addSelectInteractions.bind(this));
+
+  this.map.addGeojson("http://localhost:8000/data/osm/jean-drapeau.json");
+  this.map.addGeojson("http://localhost:8000/data/bike_path/mm.json", 
+    function(feature) { return styles.mm_trajectory; });
+
 
 };
 

@@ -50,7 +50,7 @@ def load_csv(data):
       previous_id = -1
       continue
     obs = [coord[0], coord[1], float(row[speed_idx])]
-    quantile = 2.33
+    quantile = 1.96
     acc = [float(row[hort_acc_idx])/quantile, float(row[vert_acc_idx])/quantile]
     observations.append(obs);
     accuracy.append(acc)
@@ -69,15 +69,15 @@ def load_all(files, max_count):
 def obs_transition_speed(x):
   return [x[0], x[1], math.sqrt(x[2]**2 + x[3]**2)]
 
-def obs_transition(state):
-  return [state[0], state[1]]
+def obs_transition(x):
+  return [x[0], x[1]]
 
 def filter_state(trajectories):
   P = np.identity(4) * 1000.0
   F = np.identity(4)
   F[0][2] = 1.0
   F[1][3] = 1.0
-  Q = np.diag([0.2, 0.2, 0.5, 0.5])
+  Q = np.diag([2.0, 2.0, 2.0, 2.0])
 
   for t in trajectories:
     y = t['observations'][0]
@@ -95,7 +95,7 @@ def filter_state(trajectories):
       err = 0.0
       state.time_update(F, Q)
       if o[2] >= 0.0:
-        R = np.diag([a[0]**2, a[1]**2, 0.5])
+        R = np.diag([a[0]**2, a[1]**2, 1.0])
         err = state.unscented_measurment_update(o, obs_transition_speed, R)
       else:
         R = np.diag([a[0]**2, a[1]**2])

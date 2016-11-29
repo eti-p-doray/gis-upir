@@ -7,29 +7,6 @@ import collections
 
 from utility import *
 
-def node_collapse(g, n, i, j):
-  g.add_edge(i, j, 
-    type = 'way',
-    edge_id = g[n][i]['edge_id'],
-    way_id = g[n][i]['way_id'],
-    order = i < j,
-    geometry = g[n][i]['geometry'] + [g.node[n]['geometry']] + g[n][j]['geometry'])
-  g.remove_node(n)
-
-"""def compress_graph(g):
-  for n in g.nodes():
-    adj = g.neighbors(n)
-    if (len(adj) == 2):
-      i, j = adj[0], adj[1]     
-      if g[n][i]['edge_id'] > g[n][j]['edge_id']:
-        i, j = j, i
-      if (g[n][i]['type'] == 'way' and
-          g[n][j]['type'] == 'way' and
-          g[n][i]['way_id'] == g[n][j]['way_id']):
-        print g[n][i]['edge_id'], g[n][j]['edge_id'], g[n][i]['way_id'], g[n][j]['way_id']
-        node_collapse(g, n, i, j)"""
-
-
 class SpatialGraph:
   def __init__(self):
     self.spatial_idx = rtree.index.Index()
@@ -96,8 +73,31 @@ class SpatialGraph:
     for k,(i,j) in enumerate(self.graph.edges_iter()):
       self.spatial_edge_idx.insert(k, sg.LineString(self.way((i, j))).bounds, obj=(i,j))
 
-  """def compress(self):
-    compress_graph(self.graph)"""
+  def node_collapse(self, u, n, v):
+    self.graph.add_edge(u, v, 
+      type = 'way',
+      edge_id = self.graph[n][u]['edge_id'],
+      way_id = self.graph[n][u]['way_id'],
+      order = u < v,
+      geometry = 
+        list(self.inner_way((u,n))) + 
+        [self.graph.node[n]['geometry']] + 
+        list(self.inner_way((n,v))))
+    self.graph.remove_node(n)
+
+  def compress(self):
+    for n in self.graph.nodes():
+      adj = self.graph.neighbors(n)
+      if len(adj) == 2:
+        u, v = adj[0], adj[1]
+        if self.graph.has_edge(u,v):
+          continue
+        if self.graph[n][u]['edge_id'] > self.graph[n][v]['edge_id']:
+          u, v = v, u
+        if (self.graph[n][u]['type'] == 'way' and
+            self.graph[n][v]['type'] == 'way' and
+            self.graph[n][u]['way_id'] == self.graph[n][v]['way_id']):
+          self.node_collapse(u, n, v)
 
   def export_index(self):
     index = {'neighbors':{}, 'way':{}, 'metadata':{}}
@@ -123,26 +123,34 @@ class SpatialGraph:
   def edge_intersection(self, bounds):
     return self.spatial_edge_idx.intersection(bounds, objects=True)
 
-  def direction(self, (i, j)):
-    return xor(i > j, self.graph[i][j]['order'])
+  def direction(self, u, v):
+    return xor(u > v, self.graph[u][v]['order'])
 
-  def orientate(self, (i,j)):
-    if self.direction((i,j)) == False:
-      return j,i
-    return i,j
+  def orientate(self, u, v):
+    if self.direction(u,v) == False:
+      return u, v
+    return u, v
 
   def intersection(self, i):
     return self.graph.node[i]['geometry']
 
-  def way(self, (i, j)):
-    yield self.graph.node[i]['geometry']
-    if self.direction((i,j)) == False:
-      inner = reversed(self.graph[i][j]['geometry'])
+  def way(self, (u, v)):
+    yield self.graph.node[u]['geometry']
+    if self.direction(u, v) == False:
+      inner = reversed(self.graph[u][v]['geometry'])
     else:
-      inner = self.graph[i][j]['geometry']
+      inner = self.graph[u][v]['geometry']
     for point in inner:
       yield point
-    yield self.graph.node[j]['geometry']
+    yield self.graph.node[v]['geometry']
+
+  def inner_way(self, (u, v)):
+    if self.direction(u, v) == False:
+      inner = reversed(self.graph[u][v]['geometry'])
+    else:
+      inner = self.graph[u][v]['geometry']
+    for point in inner:
+      yield point
 
   def make_shp(self):
     sf = shapefile.Writer(shapefile.POLYLINE)
@@ -163,9 +171,9 @@ class SpatialGraph:
   def make_geojson(self, epsg):
     features = []
     idx = 0
-    for u, v, p in g.edges_iter(data=True):
+    for u, v, p in self.graph.edges_iter(data=True):
       if p['type'] == 'way':
-        line = sg.mapping(sg.LineString([self.way((u,v))]))
+        line = sg.mapping(sg.LineString(list(self.way((u,v)))))
         feature = gj.Feature(
           geometry = line,
           properties = {'first': u, 'last': v, 'way_id':p['way_id'], 'id': p['edge_id']})
@@ -174,3 +182,4 @@ class SpatialGraph:
     fc = gj.FeatureCollection(features)
     fc['crs'] = {'type': 'EPSG', 'properties': {'code': epsg}}
     return fc
+
