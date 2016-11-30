@@ -7,14 +7,14 @@ from spat.path_inference import infer_path
 
 def map_match(trajectories, graph, heuristic_factor):
   for trajectory in trajectories:
-    if trajectory['id'] == '8014':
-      trajectory['edges'] = list(infer_path(trajectory['state'], trajectory['transition'], graph, heuristic_factor))
-      yield trajectory
-      break
+    trajectory['edges'] = list(infer_path(trajectory['state'], trajectory['transition'], graph, heuristic_factor))
+    yield trajectory
 
 def make_geojson(trajectories, graph):
   features = []
   for i, trajectory in enumerate(trajectories):
+    if not trajectory['edges']:
+      continue
     mm = []
     for u,v in trajectory['edges']:
       if graph.has_edge(u, v):
@@ -31,7 +31,7 @@ def main(argv):
   inputfile = 'data/bike_path/smoothed.pickle'
   facilityfile = 'data/osm/mtl.pickle'
   outputfile = 'data/bike_path/mm.json'
-  heuristic_factor = 30.0
+  heuristic_factor = 50.0
   try:
     opts, args = getopt.getopt(argv,"hi:o:",["ifile=","ofile=","facility="])
   except getopt.GetoptError:

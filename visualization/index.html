@@ -221,7 +221,7 @@ Controller.prototype.bind = function() {
 
   $.when(trajectoriesPromise, clusterPromise).then(this.addSelectInteractions.bind(this));
 
-  this.map.addGeojson("http://localhost:8000/data/osm/jean-drapeau.json");
+  //this.map.addGeojson("http://localhost:8000/data/osm/mtl.json");
   this.map.addGeojson("http://localhost:8000/data/bike_path/mm.json", 
     function(feature) { return styles.mm_trajectory; });
 

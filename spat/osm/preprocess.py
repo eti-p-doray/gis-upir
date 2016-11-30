@@ -3,7 +3,7 @@ import sets
 import itertools
 import sys, getopt
 
-from utility import *
+from spat.utility import *
 
 def load_osm(tree):
   root = tree.getroot()

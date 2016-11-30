@@ -173,7 +173,6 @@ class KalmanFilter:
     D = np.asarray(D)
     n = D.shape[0]
     distance = 0.0
-    #print 'state ', self.x
     for i in xrange(0, n):
       omega = D[i,:]
       vv = np.dot(np.dot(omega, np.asarray(self.P)), omega)
@@ -181,17 +180,11 @@ class KalmanFilter:
       c = (a[i] - np.dot(omega, self.x)) / v
       d = (b[i] - np.dot(omega, self.x)) / v
       l, u, var = truncate_gaussian(c, d)
-      #if l == -float('inf'):
-      #  return -l
       distance -= l
-      #print 'c, d, l, u, var', c, d, l, u, var
-      #print 'l2, u, var: ', l2, u, var
 
       self.x += np.dot(np.asarray(self.P), np.dot(omega, u)) / v
       S = self.P * np.outer(omega, omega) * self.P / vv
       self.P += var * S - S
-
-      #print 'state ', self.x
     return distance
 
   def transform(self, D):

@@ -19,26 +19,20 @@ def project_feature_on_segment(transition, state, (a,b), offset, width, projecti
   w = np.dot(n, a) + offset
   z = np.dot(d, a)
   quantile = 2.33
-  #print 'n, d, w: ', n, d, w
 
   H = np.asmatrix([[n[0], n[1], 0.0, 0.0],
                    [0.0, 0.0, n[0], n[1]]])
-  #print np.dot(H, state.x)
   l = state.measurment_update([w, 0.0], H, np.diag([(width / (quantile*2))**2, 0.2]))
-  #print state.x, l
-  #print np.dot(H, state.x)
-
+  
   D = np.asmatrix([[d[0], d[1], 0.0, 0.0],
                    [0.0, 0.0, d[0], d[1]]])
-  l += state.ineq_constraint_update(D, [z, 0.0], [z+length, 50.0])
-
   if projection != None:
-    l += state.measurment_update([projection.x[0]+z], D[0,:], projection.P[0,0]+0.5)
+    l += state.measurment_distance([projection.x[0]+z], D[0,:], projection.P[0,0])
+  l += state.ineq_constraint_update(D, [z, 0.0], [z+length, 50.0])
 
   F, Q = transition
   next_projection = state.transform(D)
   next_projection.x[0] -= z
-  #print 'projection ', next_projection.x
   next_projection.time_update(D * F * D.T, D * Q * D.T)
 
   return l, length, state, next_projection
@@ -69,8 +63,6 @@ def project_feature_on_way(transition, state, segments, projection, i):
       best_state = new_state
       best_projection = new_projection
       i = j + k
-    #else:
-    #  break
 
     total_length += length
 
@@ -86,9 +78,7 @@ def find_feature_projections(graph, state):
 def infer_path(states, transition, graph, heuristic_factor):
 
   def project_features(previous_edge, current_edge, projection, i, j = -1):
-    #print current_edge
     current_way = list(graph.way(current_edge))
-    #print len(current_way)
     end_point = np.array(current_way[-1])
     previous_length = 0
     if previous_edge != None:
@@ -116,17 +106,24 @@ def infer_path(states, transition, graph, heuristic_factor):
       if state == None:
         return np.inf, np.inf, np.inf, None, 0
       if i + 1 < len(states):
+        distance_to_current = distance2d(state.x[0:2], states[i].x[0:2])
         distance_to_next = distance2d(state.x[0:2], states[i+1].x[0:2])
         distance_nexts = distance2d(states[i].x[0:2], states[i+1].x[0:2])
-      if (cost + 200.0 * distance_to_next >= 
-          200.0 * (distance_nexts + distance2d(end_point, states[i].x[0:2]))
+
+      finish = np.inf
+      if projection != None:
+        finish = projection.left_ineq_constraint_distance([1.0, 0.0], previous_length)
+      if (cost > finish
+          and cost/heuristic_factor + distance_to_next >= 
+           distance_nexts + distance2d(end_point, states[i].x[0:2])
           and i > j):
-      #if (cost >= new_projection.left_ineq_constraint_distance([1.0, 0.0], current_length + previous_length)
-      #    and i > j):
         break
+
+
       heuristic -= distance_nexts
       total_cost += cost
       projection = new_projection
+
       i += 1
 
     delta = 0.0
@@ -144,12 +141,12 @@ def infer_path(states, transition, graph, heuristic_factor):
   visited = {}
 
   def enqueue(previous_edge, new_edge, cost, heuristic, delta, projection, i, j):
-    print previous_edge, new_edge, cost, heuristic, delta, i, j
     metrics[new_edge, j] = (cost, heuristic, projection)
     previous[new_edge, j] = (previous_edge, i)
     queue.put((new_edge, j), cost + heuristic + delta)
 
   def try_enqueue(previous_edge, new_edge, cost, heuristic, delta, projection, i, j):
+    #print previous_edge, new_edge, cost, heuristic, delta, i, j
     if (((new_edge, j) not in metrics or 
         cost < metrics[new_edge, j][0]) and
         np.isfinite(cost)):
@@ -173,20 +170,19 @@ def infer_path(states, transition, graph, heuristic_factor):
     projections = peek(find_feature_projections(graph, s))
     if projections != None:
       break
+  if projections == None:
+    return []
   metrics[None, i] = (0.0, 0.0, None)
   for p in projections:
     (a, b) = p.object
-    #print a, b
     try_visit(None, (a,b), i, i)
     try_visit(None, (b,a), i, i)
+  if queue.empty():
+    return []
 
   while not queue.empty():
     (edge, i) = queue.get()
-    #print 'now ', edge, i
-    #if edge in visited:
-      #print 'already visited', visited[edge]
     if edge in visited and i <= visited[edge]:
-      #print 'skipping'
       continue
     else:
       visited[edge] = i
@@ -194,10 +190,7 @@ def infer_path(states, transition, graph, heuristic_factor):
     if i == len(states):
       break
 
-
-    #try_revisit(edge, i)
     for next in graph.graph.neighbors(edge[1]):
-      #print 'next ', (edge[1], next)
       try_visit(edge, (edge[1], next), i)
       discovered_count += 1
 
