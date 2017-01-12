@@ -24,7 +24,7 @@ class handler:
     with open(clusterfile, 'r') as f:
       self.cluster = data = pickle.load(f)
 
-  def __call__(self, request):
+  def do_GET(self, request):
     print request.path
     if request.path == 'center.json':
       return json.dumps(make_geojson(self.cluster))
