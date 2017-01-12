@@ -1,24 +1,52 @@
 import pickle, geojson, json
-import sys, getopt
+import sys, getopt, math
 import shapely.geometry as sg
+from scipy import spatial
+from scipy import linalg
 
 from spat.spatial_graph import SpatialGraph
-from spat.path_inference import infer_path
+from spat.path_inference import PathInference
+from spat.utility import *
 
 def map_match(trajectories, graph, heuristic_factor):
+
+  def coords_fn(state):
+    return state.x[0:2]
+
+  def statemap_fn(v):
+    return np.asmatrix([
+      np.hstack((v, np.zeros(2))),
+      np.hstack((np.zeros(2), v))])
+
+  def nearby_fn(state):
+    quantile = 10.0
+    ell = quantile * linalg.sqrtm(state.P[0:2,0:2])
+    height = math.sqrt(ell[0][0]**2 + ell[1][0]**2)
+    width = math.sqrt(ell[0][1]**2 + ell[1][1]**2)
+    return graph.edge_intersection(
+      bb_bounds(state.x[0], state.x[1], width, height))
+
+  path = PathInference(graph, statemap_fn, coords_fn, nearby_fn, 5.0, 80.0)
   for trajectory in trajectories:
-    trajectory['edges'] = list(infer_path(trajectory['state'], trajectory['transition'], graph, heuristic_factor))
+    trajectory['mm'] = path.solve(trajectory['state'], trajectory['transition'])
     yield trajectory
 
 def make_geojson(trajectories, graph):
   features = []
   for i, trajectory in enumerate(trajectories):
-    if not trajectory['edges']:
+    if not trajectory['mm']:
       continue
     mm = []
-    for u,v in trajectory['edges']:
-      if graph.has_edge(u, v):
-        mm.extend(graph.way((u,v)))
+    #print trajectory['mm']
+    for state in trajectory['mm']:
+
+      mm.append(state['state'].x[0:2])
+      #features.append(geojson.Feature(
+      #  geometry = sg.mapping(sg.Point(state['state'].x[0:2])), 
+      #  properties = {'type':state['type'], 'cost':state['cost'], 'priority':state['priority'],'index':state['index']}))
+    #print mm
+      #if graph.has_edge(u, v):
+        #mm.extend(graph.way((u,v)))
     features.append(geojson.Feature(
       geometry = sg.mapping(sg.LineString(mm)), 
       properties = {'id':i, 'oid':trajectory['id'], 'type':'mm'}))
@@ -31,7 +59,7 @@ def main(argv):
   inputfile = 'data/bike_path/smoothed.pickle'
   facilityfile = 'data/osm/mtl.pickle'
   outputfile = 'data/bike_path/mm.json'
-  heuristic_factor = 50.0
+  heuristic_factor = 2.0
   try:
     opts, args = getopt.getopt(argv,"hi:o:",["ifile=","ofile=","facility="])
   except getopt.GetoptError:
