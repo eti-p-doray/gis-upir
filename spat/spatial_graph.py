@@ -19,6 +19,80 @@ class SpatialGraph:
   def has_edge(self, u, v):
     return self.graph.has_edge(u, v)
 
+  def neighbors(self, n):
+    return self.graph.neighbors(n)
+
+  def node_intersection(self, bounds):
+    return self.spatial_node_idx.intersection(bounds)
+
+  def edge_intersection(self, bounds):
+    return self.spatial_edge_idx.intersection(bounds, objects=True)
+
+  def direction(self, u, v):
+    return xor(u > v, self.graph[u][v]['order'])
+
+  def orientate(self, u, v):
+    if self.direction(u,v) == False:
+      return u, v
+    return u, v
+
+  def intersection(self, i):
+    return self.graph.node[i]['geometry']
+
+  def way(self, (u, v)):
+    yield self.graph.node[u]['geometry']
+    if self.direction(u, v) == False:
+      inner = reversed(self.graph[u][v]['geometry'])
+    else:
+      inner = self.graph[u][v]['geometry']
+    for point in inner:
+      yield point
+    yield self.graph.node[v]['geometry']
+
+  def inner_way(self, (u, v)):
+    if self.direction(u, v) == False:
+      inner = reversed(self.graph[u][v]['geometry'])
+    else:
+      inner = self.graph[u][v]['geometry']
+    for point in inner:
+      yield point
+
+  def node_collapse(self, u, n, v):
+    self.graph.add_edge(u, v, 
+      type = 'way',
+      edge_id = self.graph[n][u]['edge_id'],
+      way_id = self.graph[n][u]['way_id'],
+      order = u < v,
+      geometry = 
+        list(self.inner_way((u,n))) + 
+        [self.graph.node[n]['geometry']] + 
+        list(self.inner_way((n,v))))
+    self.graph.remove_node(n)
+
+  def compress(self):
+    for n in self.graph.nodes():
+      adj = self.graph.neighbors(n)
+      if len(adj) == 2:
+        u, v = adj[0], adj[1]
+        if self.graph.has_edge(u,v):
+          continue
+        if self.graph[n][u]['edge_id'] > self.graph[n][v]['edge_id']:
+          u, v = v, u
+        if (self.graph[n][u]['type'] == 'way' and
+            self.graph[n][v]['type'] == 'way' and
+            self.graph[n][u]['way_id'] == self.graph[n][v]['way_id']):
+          self.node_collapse(u, n, v)
+
+  def build_spatial_node_index(self):
+    self.spatial_node_idx = rtree.index.Index()
+    for n,p in self.graph.nodes_iter(data=True):
+      self.spatial_node_idx.insert(n, p['geometry'].bounds)
+
+  def build_spatial_edge_index(self):
+    self.spatial_edge_idx = rtree.index.Index()
+    for k,(i,j) in enumerate(self.graph.edges_iter()):
+      self.spatial_edge_idx.insert(k, sg.LineString(self.way((i, j))).bounds, obj=(i,j))
+
   def import_geobase(self, data, distance_threshold = 1.0):
     idx = 0
     for d in data:
@@ -63,95 +137,6 @@ class SpatialGraph:
           geometry = [])
         idx += 1
 
-  def build_spatial_node_index(self):
-    self.spatial_node_idx = rtree.index.Index()
-    for n,p in self.graph.nodes_iter(data=True):
-      self.spatial_node_idx.insert(n, p['geometry'].bounds)
-
-  def build_spatial_edge_index(self):
-    self.spatial_edge_idx = rtree.index.Index()
-    for k,(i,j) in enumerate(self.graph.edges_iter()):
-      self.spatial_edge_idx.insert(k, sg.LineString(self.way((i, j))).bounds, obj=(i,j))
-
-  def node_collapse(self, u, n, v):
-    self.graph.add_edge(u, v, 
-      type = 'way',
-      edge_id = self.graph[n][u]['edge_id'],
-      way_id = self.graph[n][u]['way_id'],
-      order = u < v,
-      geometry = 
-        list(self.inner_way((u,n))) + 
-        [self.graph.node[n]['geometry']] + 
-        list(self.inner_way((n,v))))
-    self.graph.remove_node(n)
-
-  def compress(self):
-    for n in self.graph.nodes():
-      adj = self.graph.neighbors(n)
-      if len(adj) == 2:
-        u, v = adj[0], adj[1]
-        if self.graph.has_edge(u,v):
-          continue
-        if self.graph[n][u]['edge_id'] > self.graph[n][v]['edge_id']:
-          u, v = v, u
-        if (self.graph[n][u]['type'] == 'way' and
-            self.graph[n][v]['type'] == 'way' and
-            self.graph[n][u]['way_id'] == self.graph[n][v]['way_id']):
-          self.node_collapse(u, n, v)
-
-  def export_index(self):
-    index = {'neighbors':{}, 'way':{}, 'metadata':{}}
-    for n in self.graph.node_iter():
-      index['intersection'][n] = []
-      index['way'][n] = []
-    for i,j,p in self.graph.edges_iter(data=True):
-      if p['type'] == 'intersection':
-        index['intersection'][i].append(j)
-        index['intersection'][j].append(i)
-      if p['type'] == 'way':
-        index['way'][i].append(p['edge_id'])
-        index['way'][j].append(p['edge_id'])
-      index['metadata'][p['way_id']] = self.metadata[p['way_id']]
-    return index
-
-  def neighbors(self, n):
-    return self.graph.neighbors(n)
-
-  def node_intersection(self, bounds):
-    return self.spatial_node_idx.intersection(bounds)
-
-  def edge_intersection(self, bounds):
-    return self.spatial_edge_idx.intersection(bounds, objects=True)
-
-  def direction(self, u, v):
-    return xor(u > v, self.graph[u][v]['order'])
-
-  def orientate(self, u, v):
-    if self.direction(u,v) == False:
-      return u, v
-    return u, v
-
-  def intersection(self, i):
-    return self.graph.node[i]['geometry']
-
-  def way(self, (u, v)):
-    yield self.graph.node[u]['geometry']
-    if self.direction(u, v) == False:
-      inner = reversed(self.graph[u][v]['geometry'])
-    else:
-      inner = self.graph[u][v]['geometry']
-    for point in inner:
-      yield point
-    yield self.graph.node[v]['geometry']
-
-  def inner_way(self, (u, v)):
-    if self.direction(u, v) == False:
-      inner = reversed(self.graph[u][v]['geometry'])
-    else:
-      inner = self.graph[u][v]['geometry']
-    for point in inner:
-      yield point
-
   def make_shp(self):
     sf = shapefile.Writer(shapefile.POLYLINE)
     sf.autoBalance = 1
@@ -182,4 +167,19 @@ class SpatialGraph:
     fc = gj.FeatureCollection(features)
     fc['crs'] = {'type': 'EPSG', 'properties': {'code': epsg}}
     return fc
+
+  def export_index(self):
+    index = {'neighbors':{}, 'way':{}, 'metadata':{}}
+    for n in self.graph.node_iter():
+      index['intersection'][n] = []
+      index['way'][n] = []
+    for i,j,p in self.graph.edges_iter(data=True):
+      if p['type'] == 'intersection':
+        index['intersection'][i].append(j)
+        index['intersection'][j].append(i)
+      if p['type'] == 'way':
+        index['way'][i].append(p['edge_id'])
+        index['way'][j].append(p['edge_id'])
+      index['metadata'][p['way_id']] = self.metadata[p['way_id']]
+    return index
 
