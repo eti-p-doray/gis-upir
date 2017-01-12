@@ -188,7 +188,7 @@ class Path:
       self.delta = self.hop * distance
     else:
       self.delta = 0.0
-    self.cstate = self.coords(self.state())
+    self.cstate = self.state()#self.coords(self.state())
     self.pstate = None
     self.index += 1
     return True
@@ -271,6 +271,7 @@ class PathInference:
       #print '  enqueue', path.edge, path.index, path.previous, path.cost, path.priority()
       self.cstate[path.current()] = {
         'state':path.cstate, 
+        'edge':path.edge,
         'type':'enqueued', 
         'cost':path.cost, 
         'priority': path.priority(), 
