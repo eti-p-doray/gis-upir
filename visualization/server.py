@@ -76,7 +76,7 @@ def main(argv):
     s.serve_forever()
   except KeyboardInterrupt:
     print '^C received, shutting down the web server'
-    server.socket.close()
+    s.socket.close()
 
 
 if __name__ == "__main__":
