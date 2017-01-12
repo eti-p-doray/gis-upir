@@ -30,7 +30,7 @@ def extract_poi(trajectory):
       count += 1
 
     else:
-      l = state.constraint_distance(np.zeros(2), np.identity(4)[2:4,:])
+      l = state.eq_constraint_distance(np.zeros(2), np.identity(4)[2:4,:])
       if l < 0.05:
         stopped = True
         count = 0
