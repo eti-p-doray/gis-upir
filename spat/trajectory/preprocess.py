@@ -134,7 +134,7 @@ def smooth_state(trajectories):
 def main(argv):
   inputdir = 'data/bike_path'
   outputfile = 'data/bike_path/smoothed.pickle'
-  max_count = Ellipsis
+  max_count = np.inf
 
   try:
     opts, args = getopt.getopt(argv,"hi:o:",["idir=","ofile=","max="])
