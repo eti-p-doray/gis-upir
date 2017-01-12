@@ -7,14 +7,9 @@ def xcov(X, Y):
   m = Y.shape[0]
   return np.cov(X, Y, bias=True)[0:n,-m:]
 
-# from: http://www.cs.princeton.edu/introcs/21function/ErrorFunction.java.html
-# Implements the Gauss error function.
-#   erf(z) = 2 / sqrt(pi) * integral(exp(-t*t), t = 0..z)
-#
-# fractional error in math formula less than 1.2 * 10 ^ -7.
-# although subject to catastrophic cancellation when z in very close to 0
-# from Chebyshev fitting formula for erf(z) from Numerical Recipes, 6.2
 def logerfc(x):
+  """ Computes log of erfc"""
+
   t = 1.0 / (1.0 + 0.5 * x)
   # use Horner's method
   return math.log(t) - x*x + (-1.26551223 +
@@ -29,6 +24,18 @@ def logerfc(x):
     t * ( 0.17087277))))))))))
 
 def left_truncate_gaussian(a):
+  """Truncates gaussian distribution and returns new statistics. 
+
+  Given x ~ N(0, 1), returns statistics of x subject to a < x.
+  
+  Args:
+    a: left bound
+
+  Returns:
+    log of probability
+    updated mean 
+    updated variance
+  """
   if a > 0.0:
     l = logerfc(a / math.sqrt(2)) - math.log(2)
   else:
@@ -41,6 +48,18 @@ def left_truncate_gaussian(a):
   return l, u, var
 
 def right_truncate_gaussian(a):
+  """Truncates gaussian distribution and returns new statistics. 
+
+  Given x ~ N(0, 1), returns statistics of x subject to x < a.
+  
+  Args:
+    a: right bound
+
+  Returns:
+    log of probability
+    updated mean
+    updated variance
+  """
   if a < 0.0:
     l = logerfc(-a / math.sqrt(2)) - math.log(2)
   else:
@@ -53,6 +72,19 @@ def right_truncate_gaussian(a):
   return l, u, var
 
 def truncate_gaussian(a, b):
+  """Truncates gaussian distribution and returns new statistics. 
+
+  Given x ~ N(0, 1), returns statistics of x subject to a < x < b.
+  
+  Args:
+    a: left bound
+    b: right bound
+
+  Returns:
+    log of probability
+    updated mean 
+    updated variance
+  """
   if a == -np.inf:
     return right_truncate_gaussian(b)
   elif b == np.inf:
@@ -182,7 +214,7 @@ class KalmanFilter:
       l, u, var = truncate_gaussian(c, d)
       distance -= l
 
-      self.x += np.dot(np.asarray(self.P), np.dot(omega, u)) / v
+      self.x += np.dot(np.asarray(self.P), omega * u) / v
       S = self.P * np.outer(omega, omega) * self.P / vv
       self.P += var * S - S
     return distance
@@ -214,13 +246,13 @@ class KalmanFilter:
     l, u, var = truncate_gaussian(c, d)
     return -l
 
-  def left_ineq_constraint_distance(self, omega, a):
+  def ineql_constraint_distance(self, omega, a):
     vv = np.dot(np.dot(omega, np.asarray(self.P)), omega)
     c = (a - np.dot(omega, self.x)) / math.sqrt(vv)
     l, u, var = left_truncate_gaussian(c)
     return -l
 
-  def right_ineq_constraint_distance(self, omega, b):
+  def ineqr_constraint_distance(self, omega, b):
     vv = np.dot(np.dot(omega, np.asarray(self.P)), omega)
     d = (b - np.dot(omega, self.x)) / math.sqrt(vv)
     l, u, var = right_truncate_gaussian(d)
