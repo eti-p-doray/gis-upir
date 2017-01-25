@@ -28,8 +28,19 @@ def map_match(trajectories, graph, heuristic_factor):
 
   path = PathInference(graph, statemap_fn, coords_fn, nearby_fn, 5.0, 80.0)
   for trajectory in trajectories:
-    trajectory['mm'] = path.solve(trajectory['state'], trajectory['transition'])
-    yield trajectory
+    print trajectory['id']
+    print len(trajectory['state'])
+    nodes, states = path.solve(trajectory['state'], trajectory['transition'])
+    #for node in nodes:
+    #  print node
+    #print list(nodes)
+    result = {
+      'id': trajectory['id'], 
+      'node': list(nodes), 
+      'state': states,
+    }
+    #print result['id']
+    yield result
 
 def make_geojson(trajectories, graph):
   features = []
@@ -58,7 +69,7 @@ def make_geojson(trajectories, graph):
 def main(argv):
   inputfile = 'data/bike_path/smoothed.pickle'
   facilityfile = 'data/osm/mtl.pickle'
-  outputfile = 'data/bike_path/mm.json'
+  outputfile = 'data/bike_path/mm.pickle'
   heuristic_factor = 2.0
   try:
     opts, args = getopt.getopt(argv,"hi:o:",["ifile=","ofile=","facility="])
@@ -66,11 +77,11 @@ def main(argv):
     print 'mapmatch [-i <inputfile>] [-o <outputfile>]'
   for opt, arg in opts:
     if opt == '-h':
-      print 'mapmatch [-i <filteredfile>] [-o <classfile>]'
+      print 'mapmatch [-i <inputfile>] [-o <outputfile>]'
       sys.exit()
     if opt in ("-i", "--ifile"):
        inputfile = arg
-    if opt in ("-i", "--facility"):
+    if opt in ("--facility"):
        facilityfile = arg
     elif opt in ("-o", "--ofile"):
        outputfile = arg
@@ -89,10 +100,17 @@ def main(argv):
   with open(inputfile, 'r') as f:
     data = pickle.load(f)
 
-  data = map_match(data, graph, heuristic_factor)
+  matched = map_match(data, graph, heuristic_factor)
+  result = list(matched)
+  #print result
 
   with open(outputfile, 'w+') as f:
-    json.dump(make_geojson(data, graph), f, indent=2)
+    pickle.dump(result, f)
+  print 'done' 
+  #print data
+
+  #with open(outputfile, 'w+') as f:
+  #  json.dump(make_geojson(data, graph), f, indent=2)
 
 if __name__ == "__main__":
   main(sys.argv[1:])

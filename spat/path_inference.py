@@ -251,6 +251,12 @@ class Path:
     return self
 
 class PathInference:
+  """
+  The algorithm of path inference works with an A-star graph search.
+  Every node of the graph is either :
+    - an observation point or 
+    - an intersection in the road network, when the current road is exhausted.
+  """
   def __init__(self, graph, statemap, coords, nearby, greedy, hop):
     self.graph = graph
     self.coords = coords
@@ -264,25 +270,26 @@ class PathInference:
         self.statemap, self.coords, self.greedy, self.hop, index)
 
   def try_enqueue(self, path):
-    #print path.current()
+
     if (np.isfinite(path.cost) and 
         (path.current() not in self.costs or 
          path.cost < self.costs[path.current()])):
-      #print '  enqueue', path.edge, path.index, path.previous, path.cost, path.priority()
-      self.cstate[path.current()] = {
-        'state':path.cstate, 
-        'edge':path.edge,
-        'type':'enqueued', 
-        'cost':path.cost, 
-        'priority': path.priority(), 
-        'index':path.index}
+
+      #ajout d'un flag exhausted
+      self.states[path.current()] = path.cstate
+        #'state': path.cstate, 
+        #'edge': path.edge, # current edge being visited, 0 if not linked
+        #'type': 'enqueued', 
+        #'cost': path.cost, 
+        #'priority': path.priority(), 
+        #'index': path.index}
       self.costs[path.current()] = path.cost
       self.queue.put(path, path.priority())
 
   def try_append(self, path, edge):
     if edge in self.visited and path.index < self.visited[edge]:
       return
-    #print edge
+
     self.try_enqueue(path.branch(edge))
 
   def visit(self, states, path):
@@ -291,9 +298,8 @@ class PathInference:
       return path
     else:
       self.visited[edge] = i
-    #print 'visit', path.edge, path.index, path.previous, path.cost, path.priority()
+
     self.previous[path.current()] = path.previous
-    self.cstate[path.current()]['type'] = 'visited'
     
     if i == len(states):
       return path
@@ -315,7 +321,7 @@ class PathInference:
   def solve(self, states, transition):
     self.costs = {}
     self.previous = {}
-    self.cstate = {}
+    self.states = {}
     self.visited = {}
     self.queue = PriorityQueue()
     start_time = time.time()
@@ -325,7 +331,7 @@ class PathInference:
       if projections != None:
         break
     if projections == None:
-      return []
+      return [], []
     self.costs[None, i] = (0.0, 0.0, None)
     for p in projections:
       (a, b) = p.object
@@ -333,24 +339,24 @@ class PathInference:
       self.try_enqueue(self.make_path(states, transition, i).append((b,a)))
 
     if self.queue.empty():
-      return []
+      return [], []
 
     while not self.queue.empty():
       path = self.visit(states, self.queue.get())
       if path.index == len(states):
         break
 
-    
     print 'elapsed_time ', time.time() - start_time
 
     def backtrack():
       r = path.previous
       while r[0] != None:
-        yield self.cstate[r]
+        yield r
         r = self.previous[r]
+    self.states = { key: self.states[key] for key in backtrack() }
 
     print 'cost ', path.cost, path.priority()
 
-    return reversed(list(backtrack()))
+    return reversed(list(backtrack())), self.states
 
 
