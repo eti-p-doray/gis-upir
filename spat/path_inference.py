@@ -17,6 +17,7 @@ class Segment:
 
     v = self.destination - self.origin
     self.length = spatial.distance.euclidean(self.origin, self.destination)
+    
     self.direction = v / self.length
     self.normal = normal2d(v) / self.length
 
@@ -31,7 +32,7 @@ class Segment:
 
   def project(self, projection, state, threshold):
     if self.empty():
-      return np.inf, None
+      return np.inf, None, None
     cost = state.measurment_update(
         [self.normal_distance, 0.0], 
         self.H, 
@@ -275,14 +276,8 @@ class PathInference:
         (path.current() not in self.costs or 
          path.cost < self.costs[path.current()])):
 
-      #ajout d'un flag exhausted
       self.states[path.current()] = path.cstate
-        #'state': path.cstate, 
-        #'edge': path.edge, # current edge being visited, 0 if not linked
-        #'type': 'enqueued', 
-        #'cost': path.cost, 
-        #'priority': path.priority(), 
-        #'index': path.index}
+
       self.costs[path.current()] = path.cost
       self.queue.put(path, path.priority())
 
@@ -307,14 +302,15 @@ class PathInference:
     if path.edge == 0:
       for edge in self.nearby(states[i]):
         (a, b) = edge.object
-        self.try_append(path, (a, b))
-        self.try_append(path, (b, a))
+        if self.graph.is_way((a, b)):
+          self.try_append(path, (a, b))
+          self.try_append(path, (b, a))
       self.try_enqueue(path.next())
     elif not path.exhausted:
       self.try_enqueue(path.next())
     else:
       for next in self.graph.neighbors(edge[1]):
-        self.try_append(path, (edge[1], next))
+        self.try_append(path, next)
       self.try_append(path, 0)
     return path
 
@@ -335,8 +331,9 @@ class PathInference:
     self.costs[None, i] = (0.0, 0.0, None)
     for p in projections:
       (a, b) = p.object
-      self.try_enqueue(self.make_path(states, transition, i).append((a,b)))
-      self.try_enqueue(self.make_path(states, transition, i).append((b,a)))
+      if self.graph.is_way((a, b)):
+        self.try_enqueue(self.make_path(states, transition, i).append((a,b)))
+        self.try_enqueue(self.make_path(states, transition, i).append((b,a)))
 
     if self.queue.empty():
       return [], []

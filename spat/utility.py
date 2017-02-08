@@ -44,3 +44,5 @@ def distance2d(x1, x2):
   return norm2d(x1[0:2] - x2[0:2])
 def bb_bounds(x, y, width, height):
   return (x-width, y-width, x+width, y+height)
+def bb_buffer(point, width):
+  return (point.x-width, point.y-width, point.x+width, point.y+width)

@@ -9,7 +9,6 @@ from utility import *
 
 class SpatialGraph:
   def __init__(self):
-    self.spatial_idx = rtree.index.Index()
     self.graph = nx.Graph()
     self.metadata = {}
 
@@ -19,8 +18,18 @@ class SpatialGraph:
   def has_edge(self, u, v):
     return self.graph.has_edge(u, v)
 
-  def neighbors(self, n):
-    return self.graph.neighbors(n)
+  def neighbors(self, u):
+    for v in self.graph.neighbors(u):
+      if (self.graph[u][v]['way'] == True):
+        yield (u, v)
+      else:
+        n = self.graph.neighbors(v)
+        if n[0] != u:
+          yield (v, n[0])
+        elif n[1] != u:
+          yield (v, n[1])
+        else:
+          raise Exception('Invalid intersection')
 
   def node_intersection(self, bounds):
     return self.spatial_node_idx.intersection(bounds)
@@ -35,6 +44,9 @@ class SpatialGraph:
     if self.direction(u,v) == False:
       return u, v
     return u, v
+
+  def is_way(self, (u, v)):
+    return self.graph[u][v]['way']
 
   def intersection(self, i):
     return self.graph.node[i]['geometry']
@@ -59,7 +71,7 @@ class SpatialGraph:
 
   def node_collapse(self, u, n, v):
     self.graph.add_edge(u, v, 
-      type = 'way',
+      way = True,
       edge_id = self.graph[n][u]['edge_id'],
       way_id = self.graph[n][u]['way_id'],
       order = u < v,
@@ -78,8 +90,8 @@ class SpatialGraph:
           continue
         if self.graph[n][u]['edge_id'] > self.graph[n][v]['edge_id']:
           u, v = v, u
-        if (self.graph[n][u]['type'] == 'way' and
-            self.graph[n][v]['type'] == 'way' and
+        if (self.graph[n][u]['way'] == True and
+            self.graph[n][v]['way'] == True and
             self.graph[n][u]['way_id'] == self.graph[n][v]['way_id']):
           self.node_collapse(u, n, v)
 
@@ -93,34 +105,60 @@ class SpatialGraph:
     for k,(i,j) in enumerate(self.graph.edges_iter()):
       self.spatial_edge_idx.insert(k, sg.LineString(self.way((i, j))).bounds, obj=(i,j))
 
-  def import_geobase(self, data, distance_threshold = 1.0):
-    idx = 0
-    for d in data:
-      previous_idx = -1
-      first_idx = self.graph.order()
-      for p in d['geometry'].coords:
-        current_idx = self.graph.order()
-        g = sg.Point(p)
-        self.graph.add_node(current_idx, geometry = g)
-        if (previous_idx != -1):
-          self.graph.add_edge(previous_idx, current_idx, 
-            way_id = d['id'],
-            edge_id = idx,
-            type = 'way',
-            geometry = [],
-            order = True)
-          idx += 1
-        nodes = self.spatial_node_idx.intersection(g.buffer(distance_threshold).bounds)
-        for k in nodes:
-          if (g.distance(self.graph.node[k]['geometry']) <= distance_threshold and
-              k != previous_idx):
-            self.graph.add_edge(current_idx, k, 
-              type = 'intersection',
-              edge_id = idx)
-            idx += 1
+  def import_geobase(self, data, first_idx, distance_threshold = 1.0):
+    edge_idx = self.graph.size()
+    print first_idx
+    for segment in data:
+      properties = segment['properties']
 
-        self.spatial_node_idx.insert(current_idx, g.bounds)
-        previous_idx = current_idx
+      last_idx = first_idx + len(segment['geometry'].coords)
+      first_geom = sg.Point(segment['geometry'].coords[0])
+      last_geom = sg.Point(segment['geometry'].coords[-1])
+      """if segment['geometry'].length > 5000.0:
+        print 'boubou', segment['geometry'].length
+        for p in segment['geometry'].coords:
+          print p.x, p.y
+        print"""
+      if first_geom.distance(last_geom) > 5000:
+        print first_geom.distance(last_geom)
+        #print segment['geometry'].coords
+
+      self.graph.add_node(first_idx, geometry = first_geom)
+      self.graph.add_node(last_idx,  geometry = last_geom)
+      self.graph.add_edge(first_idx, last_idx, 
+          edge_id = edge_idx,
+          way = True,
+          geometry = [sg.Point(x) for x in segment['geometry'].coords[1:-1]],
+          order = True,
+          **properties)
+
+      def add_intersections(point, idx, before):
+        nodes = self.spatial_node_idx.intersection(
+          bb_buffer(point, distance_threshold))
+        for k in nodes:
+          if (point.distance(self.graph.node[k]['geometry']) <= 
+                distance_threshold and
+              k < before):
+            self.graph.add_edge(idx, k, 
+              way = False,
+              edge_id = edge_idx,
+              order = True, 
+              geometry = [])
+            """d = self.graph.node[idx]['geometry'].distance(
+              self.graph.node[k]['geometry'])
+            if d > 1000:
+              print d"""
+            #print self.graph.node[idx]['geometry'].distance(
+            #  self.graph.node[k]['geometry'])
+      add_intersections(first_geom, first_idx, first_idx)
+      add_intersections(last_geom, last_idx, first_idx)
+
+      self.spatial_node_idx.insert(first_idx, first_geom.bounds)
+      self.spatial_node_idx.insert(last_idx, last_geom.bounds)
+      edge_idx += 1
+      first_idx = last_idx + 1
+
+    return first_idx
 
   def import_osm(self, data):
     for i, n in data['nodes'].iteritems():
@@ -132,7 +170,7 @@ class SpatialGraph:
         self.graph.add_edge(i, j,
           way_id = k,
           edge_id = idx,
-          type = 'way',
+          way = True,
           order = i < j, 
           geometry = [])
         idx += 1
@@ -146,7 +184,7 @@ class SpatialGraph:
     sf.field('id')
     idx = 0
     for u, v, p in self.graph.edges(data=True):
-      if p['type'] == 'way':
+      if p['way'] == True:
         line = sg.mapping(sg.LineString([self.way((u,v))]))
         sf.line(parts=[line['coordinates']])
         sf.record(first= u, last= v, way_id= p['way_id'], id= p['edge_id'])
@@ -157,7 +195,7 @@ class SpatialGraph:
     features = []
     idx = 0
     for u, v, p in self.graph.edges_iter(data=True):
-      if p['type'] == 'way':
+      if p['way'] == True:
         line = sg.mapping(sg.LineString(list(self.way((u,v)))))
         feature = gj.Feature(
           geometry = line,
@@ -174,12 +212,23 @@ class SpatialGraph:
       index['intersection'][n] = []
       index['way'][n] = []
     for i,j,p in self.graph.edges_iter(data=True):
-      if p['type'] == 'intersection':
+      if p['way'] == False:
         index['intersection'][i].append(j)
         index['intersection'][j].append(i)
-      if p['type'] == 'way':
+      if p['way'] == True:
         index['way'][i].append(p['edge_id'])
         index['way'][j].append(p['edge_id'])
       index['metadata'][p['way_id']] = self.metadata[p['way_id']]
     return index
+
+  def __getstate__(self):
+    odict = self.__dict__.copy()
+    if 'spatial_node_idx' in odict:
+      del odict['spatial_node_idx']
+    if 'spatial_edge_idx' in odict:
+      del odict['spatial_edge_idx']
+    return odict
+
+  def __setstate__(self, dict):
+    self.__dict__.update(dict)
 
