@@ -31,7 +31,6 @@ def load_csv(data):
     if current_id != previous_id:
       if observations:
         print previous_id
-        #if previous_id == '1013':
         yield {
           'observations': observations, 
           'accuracy': accuracy, 
@@ -139,10 +138,11 @@ def main(argv):
   try:
     opts, args = getopt.getopt(argv,"hi:o:",["idir=","ofile=","max="])
   except getopt.GetoptError:
-    print 'smooth [-i <inputdir>] [-o <outputfile>]'
+    print 'preprocess [-i <inputdir>] [-o <outputfile>]'
+    sys.exit(0)
   for opt, arg in opts:
     if opt == '-h':
-      print 'smooth [-i <inputdir>] [-o <outputfile>]'
+      print 'preprocess [-i <inputdir>] [-o <outputfile>]'
       sys.exit()
     elif opt in ("-i", "--idir"):
       inputdir = arg
