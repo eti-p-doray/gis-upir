@@ -9,35 +9,11 @@ from spat.spatial_graph import SpatialGraph
 from spat.utility import *
 
 def extract_length(trajectory, graph):
-  def coords(state):
-    return state.x[0:2]
-
-  length = 0
-  edge = 0
-  states = trajectory['state']
-  nodes = trajectory['node']
-  state = 0
-  for node in nodes:
-    if node[0] == 0:
-      if edge != 0:
-        length += way.project(sg.Point(coords(state)))
-      else:
-        length += spatial.distance.euclidean(coords(state), coords(states[node]))
-    elif node[0] != edge:
-      if edge != 0:
-        length += way.length
-        way = sg.LineString(graph.way(node[0]))
-      else:
-        way = sg.LineString(graph.way(node[0]))
-        length -= way.project(sg.Point(coords(states[node])))
-
-    edge = node[0]
-    state = states[node]
-
-  if edge != 0:
-    way = sg.LineString(graph.way(edge))
-    length += way.project(sg.Point(coords(states[node])))
-
+  for segment in trajectory:
+    if segment['link'] == 0:
+      length += sg.LineString(segment['geometry']).length
+    else:
+      length += segment['bounds'][1] - segment['bounds'][0]
   return length
 
 def load_discontinuity(file):
