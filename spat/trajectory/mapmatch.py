@@ -8,15 +8,76 @@ from spat.spatial_graph import SpatialGraph
 from spat.path_inference import PathInference
 from spat.utility import *
 
-def map_match(trajectories, graph, heuristic_factor):
-
-  def coords_fn(state):
+def coords_fn(state):
     return state.x[0:2]
 
-  def statemap_fn(v):
-    return np.asmatrix([
-      np.hstack((v, np.zeros(2))),
-      np.hstack((np.zeros(2), v))])
+def statemap_fn(v):
+  return np.asmatrix([
+    np.hstack((v, np.zeros(2))),
+    np.hstack((np.zeros(2), v))])
+
+def parse_nodes(nodes, states, graph):
+  previous_edge = 0
+  current_way = None
+
+  segment = { 'geometry': [] }
+  for node in nodes:
+    current_edge = node[0]
+
+    if current_edge != previous_edge: # end of segment      
+      previous_way = current_way
+      if current_edge != 0:
+        current_way = sg.LineString(graph.way(current_edge))
+      else:
+        current_way = None
+
+      if segment['geometry']: # segment not empty
+        segment['geometry'].pop() # last coord is not part of segment
+
+        if previous_edge == 0: # current segment is floating
+          coord = coords_fn(states[node])
+          segment['geometry'].append(coord)
+          projection = current_way.project(sg.Point(coord))
+          segment['bounds'][1] = (False, projection)
+        elif current_edge == 0: # next segment is floating
+          projection = previous_way.project(sg.Point(coords_fn(states[previous_node])))
+          segment['bounds'][1] = (False, projection)
+        else:
+          segment['bounds'][1] = ((True, current_way.length))
+
+        yield segment
+
+      segment = {
+        'geometry': [],
+        'bounds': [(True, 0.0), None],
+        'link': current_edge
+      }
+      print current_edge
+      if current_edge == 0: # current segment is floating
+        coord = coords_fn(states[previous_node])
+        segment['geometry'].append(coord)
+        projection = previous_way.project(sg.Point(coord))
+        segment['bounds'][0] = (False, projection)
+      elif previous_edge == 0: # previous segment is floating
+        projection = current_way.project(sg.Point(coords_fn(states[node])))
+        segment['bounds'][0] = (False, projection)
+
+    segment['geometry'].append(coords_fn(states[node]))
+
+    previous_node = node
+    previous_edge = current_edge
+
+  if segment['geometry']:
+    if previous_edge == 0: # last segment is floating
+      segment['bounds'][1] = (False, 0.0)
+      yield segment
+    else:
+      projection = previous_way.project(sg.Point(coords_fn(states[previous_node])))
+      segment['bounds'][1] = (False, projection)
+      yield segment
+
+
+def map_match(trajectories, graph, heuristic_factor):
 
   def nearby_fn(state):
     quantile = 10.0
@@ -26,32 +87,19 @@ def map_match(trajectories, graph, heuristic_factor):
     return graph.edge_intersection(
       bb_bounds(state.x[0], state.x[1], width, height))
 
-  path = PathInference(graph, statemap_fn, coords_fn, nearby_fn, 5.0, 80.0)
+  path = PathInference(graph, statemap_fn, coords_fn, nearby_fn, heuristic_factor, 100.0)
   for trajectory in trajectories:
-    print trajectory['id']
-    print len(trajectory['state'])
     nodes, states = path.solve(trajectory['state'], trajectory['transition'])
-    #for node in nodes:
-    #  print node
-    #print list(nodes)
-    result = {
-      'id': trajectory['id'], 
-      'node': list(nodes), 
-      'state': states,
-    }
-    #print result['id']
-    yield result
+
+    yield list(parse_nodes(nodes, states, graph))
 
 def make_geojson(trajectories, graph):
   features = []
   for i, trajectory in enumerate(trajectories):
-    if not trajectory['mm']:
-      continue
     mm = []
-    #print trajectory['mm']
-    for state in trajectory['mm']:
-
-      mm.append(state['state'].x[0:2])
+    for segment in trajectory:
+      for point in segment['geometry']:
+        mm.append(point)
       #features.append(geojson.Feature(
       #  geometry = sg.mapping(sg.Point(state['state'].x[0:2])), 
       #  properties = {'type':state['type'], 'cost':state['cost'], 'priority':state['priority'],'index':state['index']}))
@@ -60,7 +108,7 @@ def make_geojson(trajectories, graph):
         #mm.extend(graph.way((u,v)))
     features.append(geojson.Feature(
       geometry = sg.mapping(sg.LineString(mm)), 
-      properties = {'id':i, 'oid':trajectory['id'], 'type':'mm'}))
+      properties = {'id':i, 'type':'mm'}))
 
   fc = geojson.FeatureCollection(features)
   fc['crs'] = {'type': 'EPSG', 'properties': {'code': 2150}}
@@ -68,9 +116,9 @@ def make_geojson(trajectories, graph):
 
 def main(argv):
   inputfile = 'data/bike_path/smoothed.pickle'
-  facilityfile = 'data/osm/mtl.pickle'
+  facilityfile = 'data/mtl_geobase/mtl.pickle'
   outputfile = 'data/bike_path/mm.pickle'
-  heuristic_factor = 2.0
+  heuristic_factor = 5.0
   try:
     opts, args = getopt.getopt(argv,"hi:o:",["ifile=","ofile=","facility="])
   except getopt.GetoptError:
@@ -91,26 +139,29 @@ def main(argv):
   print 'output file:', outputfile
 
   with open(facilityfile, 'r') as f:
+    graph = pickle.load(f)
+  graph.build_spatial_edge_index()
+  """with open(facilityfile, 'r') as f:
     facility = pickle.load(f)
   graph = SpatialGraph()
   graph.import_osm(facility)
   graph.compress()
-  graph.build_spatial_edge_index()
+  graph.build_spatial_edge_index()"""
 
   with open(inputfile, 'r') as f:
     data = pickle.load(f)
 
   matched = map_match(data, graph, heuristic_factor)
   result = list(matched)
+
   #print result
 
   with open(outputfile, 'w+') as f:
     pickle.dump(result, f)
   print 'done' 
-  #print data
 
-  #with open(outputfile, 'w+') as f:
-  #  json.dump(make_geojson(data, graph), f, indent=2)
+  with open("data/bike_path/mm.json", 'w+') as f:
+    json.dump(make_geojson(result, graph), f, indent=2)
 
 if __name__ == "__main__":
   main(sys.argv[1:])
