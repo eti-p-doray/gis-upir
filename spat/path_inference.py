@@ -138,7 +138,7 @@ class Path:
     self.exhausted = True
 
     self.edge, self.index = None, index
-    self.previous = self.current()
+    self.previous = None
 
   def copy(self):
     that = Path(self.graph, self.states, self.way.transition, 
@@ -211,8 +211,9 @@ class Path:
       return False
 
   def append(self, edge):
-    self.previous = self.current()
-    if edge == 0:
+    if self.edge != None or self.previous != None:
+      self.previous = self.current()
+    if edge == None:
       self.edge = edge
       self.way.reset()
       self.delta = (self.hop * 
@@ -220,7 +221,7 @@ class Path:
                                    self.coords(self.state())))
       self.exhausted = True
 
-    elif self.edge == None or self.edge == 0:
+    elif self.edge == None:
       self.edge = edge
       self.pstate = None
       self.way.append(self.edge)
@@ -245,7 +246,7 @@ class Path:
 
   def next(self):
     self.previous = self.current()
-    if self.edge == 0:
+    if self.edge == None:
       self.exhausted = not self.jump()
     else:
       self.exhausted = not self.try_advance(self.project())
@@ -271,7 +272,6 @@ class PathInference:
         self.statemap, self.coords, self.greedy, self.hop, index)
 
   def try_enqueue(self, path):
-
     if (np.isfinite(path.cost) and 
         (path.current() not in self.costs or 
          path.cost < self.costs[path.current()])):
@@ -284,7 +284,6 @@ class PathInference:
   def try_append(self, path, edge):
     if edge in self.visited and path.index < self.visited[edge]:
       return
-
     self.try_enqueue(path.branch(edge))
 
   def visit(self, states, path):
@@ -299,19 +298,18 @@ class PathInference:
     if i == len(states):
       return path
 
-    if path.edge == 0:
+    if path.edge == None:
       for edge in self.nearby(states[i]):
         (a, b) = edge.object
-        if self.graph.is_way((a, b)):
-          self.try_append(path, (a, b))
-          self.try_append(path, (b, a))
+        self.try_append(path, (a, b))
+        self.try_append(path, (b, a))
       self.try_enqueue(path.next())
     elif not path.exhausted:
       self.try_enqueue(path.next())
     else:
       for next in self.graph.neighbors(edge[1]):
         self.try_append(path, next)
-      self.try_append(path, 0)
+      self.try_append(path, None)
     return path
 
   def solve(self, states, transition):
@@ -331,9 +329,8 @@ class PathInference:
     self.costs[None, i] = (0.0, 0.0, None)
     for p in projections:
       (a, b) = p.object
-      if self.graph.is_way((a, b)):
-        self.try_enqueue(self.make_path(states, transition, i).append((a,b)))
-        self.try_enqueue(self.make_path(states, transition, i).append((b,a)))
+      self.try_enqueue(self.make_path(states, transition, i).append((a,b)))
+      self.try_enqueue(self.make_path(states, transition, i).append((b,a)))
 
     if self.queue.empty():
       return [], []
@@ -347,9 +344,13 @@ class PathInference:
 
     def backtrack():
       r = path.previous
-      while r[0] != None:
+      while r != None:
         yield r
         r = self.previous[r]
+    #print self.previous
+    #print self.states
+    #for key in backtrack():
+    #  print key
     self.states = { key: self.states[key] for key in backtrack() }
 
     print 'cost ', path.cost, path.priority()

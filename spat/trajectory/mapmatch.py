@@ -17,7 +17,7 @@ def statemap_fn(v):
     np.hstack((np.zeros(2), v))])
 
 def parse_nodes(nodes, states, graph):
-  previous_edge = 0
+  previous_edge = None
   current_way = None
 
   segment = { 'geometry': [] }
@@ -26,7 +26,7 @@ def parse_nodes(nodes, states, graph):
 
     if current_edge != previous_edge: # end of segment      
       previous_way = current_way
-      if current_edge != 0:
+      if current_edge != None:
         current_way = sg.LineString(graph.way(current_edge))
       else:
         current_way = None
@@ -34,17 +34,18 @@ def parse_nodes(nodes, states, graph):
       if segment['geometry']: # segment not empty
         segment['geometry'].pop() # last coord is not part of segment
 
-        if previous_edge == 0: # current segment is floating
+        if previous_edge == None: # current segment is floating
           coord = coords_fn(states[node])
           segment['geometry'].append(coord)
           projection = current_way.project(sg.Point(coord))
           segment['bounds'][1] = (False, projection)
-        elif current_edge == 0: # next segment is floating
+        elif current_edge == None: # next segment is floating
           projection = previous_way.project(sg.Point(coords_fn(states[previous_node])))
           segment['bounds'][1] = (False, projection)
         else:
-          segment['bounds'][1] = ((True, current_way.length))
+          segment['bounds'][1] = ((True, previous_way.length))
 
+        print segment['link'], segment['bounds']
         yield segment
 
       segment = {
@@ -52,13 +53,13 @@ def parse_nodes(nodes, states, graph):
         'bounds': [(True, 0.0), None],
         'link': current_edge
       }
-      print current_edge
-      if current_edge == 0: # current segment is floating
+      #print current_edge
+      if current_edge == None: # current segment is floating
         coord = coords_fn(states[previous_node])
         segment['geometry'].append(coord)
         projection = previous_way.project(sg.Point(coord))
         segment['bounds'][0] = (False, projection)
-      elif previous_edge == 0: # previous segment is floating
+      elif previous_edge == None: # previous segment is floating
         projection = current_way.project(sg.Point(coords_fn(states[node])))
         segment['bounds'][0] = (False, projection)
 
@@ -68,7 +69,7 @@ def parse_nodes(nodes, states, graph):
     previous_edge = current_edge
 
   if segment['geometry']:
-    if previous_edge == 0: # last segment is floating
+    if previous_edge == None: # last segment is floating
       segment['bounds'][1] = (False, 0.0)
       yield segment
     else:

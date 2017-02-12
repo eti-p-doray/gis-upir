@@ -33,7 +33,7 @@ def preprocess_cycling(data):
     properties = {
       'way_id': p['ID'],
       'link_id': p['ID_TRC_GEOBASE'],
-      'type': p['TYPE_VOIE'],
+      'type': p['TYPE_VOIE'] + 10,
       'sens': 0,
     }
     if (geometry.type == 'LineString'):
@@ -68,24 +68,10 @@ def main(argv):
   graph = SpatialGraph()
   graph.build_spatial_node_index()
   with open("data/mtl_geobase/road.json", 'r') as f:
-    idx = graph.import_geobase(preprocess_road(json.load(f)), 0, 2.0)
+    graph.import_geobase(preprocess_road(json.load(f)), 2.0)
   with open("data/mtl_geobase/cycling.json", 'r') as f:
-    graph.import_geobase(preprocess_cycling(json.load(f)), idx, 2.0)
+    graph.import_geobase(preprocess_cycling(json.load(f)), 2.0)
 
-  for edge in graph.graph.edges_iter():
-    length = sg.LineString(graph.way(edge)).length
-    if length > 5000:
-      print edge, length
-      for p in graph.way(edge):
-        print p.x, p.y
-      print
-
-  graph.compress()
-
-  """for edge in graph.graph.edges_iter():
-    length = sg.LineString(graph.way(edge)).length
-    if length > 5000:
-      print edge, length"""
   with open(outputfile, 'w+') as f:
     pickle.dump(graph, f)
   print 'done' 
