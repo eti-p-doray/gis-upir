@@ -15,7 +15,7 @@ Here is the description of the current structure.
 Dependancies
 ============
 
-Here's a list of python depandancies. All of them can be installed with pip:
+Here's a list of python depandancies. All of them can be installed with pip.
 
 * [networkx](https://networkx.github.io/documentation/development/install.html)
 * [numpy/scipy](http://scipy.org/install.html)
@@ -24,3 +24,16 @@ Here's a list of python depandancies. All of them can be installed with pip:
 * [pyshp](https://pypi.python.org/pypi/pyshp)
 * [geojson](https://pypi.python.org/pypi/geojson)
 * [Rtree](https://pypi.python.org/pypi/Rtree/), requires [libspatialindex](http://libspatialindex.github.io/)
+
+Usage
+=====
+
+Here's a list of useful standalone python scripts. Help is provided for more info.
+
+* spat.geobase.preprocess 
+* spat.trajectory.preprocess
+* spat.trajectory.cluster
+* spat.trajectory.features
+* spat.trajectory.export
+* spat.osm.preprocess
+* spat.osm.export
