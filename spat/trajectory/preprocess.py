@@ -1,5 +1,7 @@
-import pickle, csv, pyproj as proj, math
-import sys, getopt, os, fnmatch
+import sys, os, fnmatch, argparse
+import pickle, csv, geojson, json, math, datetime
+import shapely.geometry as sg
+import pyproj as proj
 from itertools import izip
 
 import numpy as np
@@ -24,7 +26,7 @@ def load_csv(data):
 
   observations = []
   accuracy = []
-  edges = []
+  link = []
   previous_id = -1;
   for row in data:
     current_id = row[0]
@@ -35,12 +37,24 @@ def load_csv(data):
           'observations': observations, 
           'accuracy': accuracy, 
           'id': previous_id,
-          'edges': edges
+          'link': link
         }
         observations = []
+        accuracy = []
+        link = []
       previous_id = current_id
+      previous_time = None
 
-    #current_time = datetime.strptime(row[time_idx], '%Y-%m-%d %H:%M:%S')
+    current_time = datetime.datetime.strptime(row[time_idx], '%Y-%m-%d %H:%M:%S')
+    #print row[time_idx]
+    while (previous_time != None and 
+           previous_time + datetime.timedelta(seconds=1) < current_time):
+      observations.append(None)
+      accuracy.append(None)
+      link.append(None)
+      previous_time += datetime.timedelta(seconds=1)
+
+    previous_time = current_time
     try:
       coord = proj.transform(srcProj, dstProj, 
         float(row[longitude_idx]), 
@@ -53,7 +67,7 @@ def load_csv(data):
     acc = [float(row[hort_acc_idx])/quantile, float(row[vert_acc_idx])/quantile]
     observations.append(obs);
     accuracy.append(acc)
-    edges.append((int(row[src_node_idx]), int(row[dst_node_idx])))
+    link.append((int(row[src_node_idx]), int(row[dst_node_idx])))
 
 def load_all(files, max_count):
   for filepath in files:
@@ -78,45 +92,46 @@ def filter_state(trajectories):
   F[1][3] = 1.0
   Q = np.diag([2.0, 2.0, 2.0, 2.0])
 
-  for t in trajectories:
-    y = t['observations'][0]
+  def init_trajectory(t):
+    return {
+        'id': t['id'], 
+        'observations':[], 
+        'link': [],
+        'state':[], 
+        'accuracy':[],
+        'transition': (F, Q)
+      }
+
+  for trajectory in trajectories:
+    y = trajectory['observations'][0]
     state = KalmanFilter(y[0:2] + [0.0, 0.0], P)
-    result = {
-      'id': t['id'], 
-      'observations':[], 
-      'edges': [],
-      'state':[], 
-      'accuracy':[],
-      'transition': (F, Q)
-    }
+    trajectory['state'] = []
+    trajectory['transition'] = (F, Q)
 
-    for o, a, e in izip(t['observations'], t['accuracy'], t['edges']):
-      err = 0.0
+    for observation, accuracy, link in izip(
+        trajectory['observations'], 
+        trajectory['accuracy'], 
+        trajectory['link']):
+      error = 0.0
       state.time_update(F, Q)
-      if o[2] >= 0.0:
-        R = np.diag([a[0]**2, a[1]**2, 1.0])
-        err = state.unscented_measurment_update(o, obs_transition_speed, R)
-      else:
-        R = np.diag([a[0]**2, a[1]**2])
-        err = state.unscented_measurment_update(o[0:2], obs_transition, R)
-      if err > 200.0**2:
-        if len(result['state']) >= 2:
-          yield result
-        result = {
-          'id': t['id'], 
-          'observations':[],
-          'edges': [],
-          'state':[], 'accuracy':[],
-          'transition': (F, Q)
-        }
-      else:
-        result['state'].append(state.copy())
-        result['observations'].append(o)
-        result['accuracy'].append(a)
-        result['edges'].append(e)
+      if observation != None:
+        if observation[2] >= 0.0:
+          R = np.diag([accuracy[0]**2, accuracy[1]**2, 1.0])
+          error = state.unscented_measurment_update(observation, 
+                                                    obs_transition_speed, R)
+        else:
+          R = np.diag([accuracy[0]**2, accuracy[1]**2])
+          error = state.unscented_measurment_update(observation[0:2], 
+                                                    obs_transition, R)
 
-    if len(result['state']) >= 2:
-      yield result
+        if error > 200.0**2: # trajectory is broken
+          print 'trashing ', trajectory['id'], ' due to broken path'
+          break
+        else:
+          trajectory['state'].append(state.copy())
+
+    if len(trajectory['state']) >= 2:
+      yield trajectory
 
 def smooth_state(trajectories):
   filtered_trajectories = filter_state(trajectories)
@@ -130,46 +145,57 @@ def smooth_state(trajectories):
     yield t
 
 
+def make_geojson(trajectories):
+  features = []
+  for trajectory in trajectories:
+    state = [[s.x[0], s.x[1]] for s in trajectory['state']]
+    features.append(geojson.Feature(
+      geometry = sg.mapping(sg.LineString(state)), 
+      properties = {'id':trajectory['id'], 'type':'state'}))
+
+  fc = geojson.FeatureCollection(features)
+  fc['crs'] = {'type': 'EPSG', 'properties': {'code': 2150}}
+  return fc
+
+
 def main(argv):
-  inputdir = 'data/bike_path'
-  outputfile = 'data/bike_path/smoothed.pickle'
-  max_count = np.inf
+  parser = argparse.ArgumentParser(description="""
+    Read bike trajectory in csv format and apply a preprocess step
+    that includes optimal smoothing with an autoregressive model,
+    as well as filtering out broken trajectories.
+    """, formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+  parser.add_argument('-i', '--idir', default = 'data/bike_path', 
+    help="""directory containing input data files. 
+            All *.csv files will be imported""");
+  parser.add_argument('-o', '--ofile', default = 'data/bike_path/smoothed.pickle', 
+    help='output pickle file to export serialized result');
+  parser.add_argument('--geojson',
+    help='output geojson file to export smoothed geometry');
+  parser.add_argument('--max', default = np.inf, type=int,
+    help='maximum number of trajectory that will be processed');
 
-  try:
-    opts, args = getopt.getopt(argv,"hi:o:",["idir=","ofile=","max="])
-  except getopt.GetoptError:
-    print 'preprocess [-i <inputdir>] [-o <outputfile>]'
-    sys.exit(0)
-  for opt, arg in opts:
-    if opt == '-h':
-      print 'preprocess [-i <inputdir>] [-o <outputfile>]'
-      sys.exit()
-    elif opt in ("-i", "--idir"):
-      inputdir = arg
-    elif opt in ("-o", "--ofile"):
-      outputfile = arg
-    elif opt in ("--max"):
-      max_count = int(arg)
-
-  print 'input directory:', inputdir
-  print 'output file:', outputfile 
-
+  args = parser.parse_args()
+  print 'input directory:', args.idir
   print 'found input files:'
-  for file in os.listdir(inputdir):
+  for file in os.listdir(args.idir):
     if fnmatch.fnmatch(file, '*.csv'):
-      print ' ', inputdir + file
+      print ' ', args.idir + file
   print
 
-  files = (os.path.join(inputdir, file) 
-    for file in os.listdir(inputdir) 
+  print 'output file:', args.ofile 
+
+  files = (os.path.join(args.idir, file) 
+    for file in os.listdir(args.idir) 
     if fnmatch.fnmatch(file, '*.csv'))
 
-  trajectories = load_all(files, max_count)
-  smoothed_trajectories = smooth_state(trajectories)
-  result = list(smoothed_trajectories)
+  trajectories = load_all(files, args.max)
+  smoothed_trajectories = list(smooth_state(trajectories))
 
-  with open(outputfile, 'w+') as f:
-    pickle.dump(result, f)
+  with open(args.ofile, 'w+') as f:
+    pickle.dump(smoothed_trajectories, f)
+  if args.geojson != None:
+    with open(args.geojson, 'w+') as f:
+      json.dump(make_geojson(smoothed_trajectories), f, indent=2)
   print 'done'  
 
 if __name__ == "__main__":
