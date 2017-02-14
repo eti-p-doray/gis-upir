@@ -1,5 +1,5 @@
-import pickle, geojson, json
-import sys, getopt, math
+import sys, getopt, argparse
+import pickle, geojson, json, math
 import shapely.geometry as sg
 from scipy import spatial
 from scipy import linalg
@@ -16,7 +16,7 @@ def statemap_fn(v):
     np.hstack((v, np.zeros(2))),
     np.hstack((np.zeros(2), v))])
 
-def parse_nodes(nodes, states, graph):
+def parse_nodes(nodes, states, graph, idx):
   previous_edge = None
   current_way = None
 
@@ -45,15 +45,15 @@ def parse_nodes(nodes, states, graph):
         else:
           segment['bounds'][1] = ((True, previous_way.length))
 
-        print segment['link'], segment['bounds']
+        print ' ', segment['link']
         yield segment
 
       segment = {
         'geometry': [],
         'bounds': [(True, 0.0), None],
-        'link': current_edge
+        'link': current_edge,
+        'id': idx
       }
-      #print current_edge
       if current_edge == None: # current segment is floating
         coord = coords_fn(states[previous_node])
         segment['geometry'].append(coord)
@@ -92,7 +92,7 @@ def map_match(trajectories, graph, heuristic_factor):
   for trajectory in trajectories:
     nodes, states = path.solve(trajectory['state'], trajectory['transition'])
 
-    yield list(parse_nodes(nodes, states, graph))
+    yield list(parse_nodes(nodes, states, graph, trajectory['id']))
 
 def make_geojson(trajectories, graph):
   features = []
@@ -101,12 +101,6 @@ def make_geojson(trajectories, graph):
     for segment in trajectory:
       for point in segment['geometry']:
         mm.append(point)
-      #features.append(geojson.Feature(
-      #  geometry = sg.mapping(sg.Point(state['state'].x[0:2])), 
-      #  properties = {'type':state['type'], 'cost':state['cost'], 'priority':state['priority'],'index':state['index']}))
-    #print mm
-      #if graph.has_edge(u, v):
-        #mm.extend(graph.way((u,v)))
     features.append(geojson.Feature(
       geometry = sg.mapping(sg.LineString(mm)), 
       properties = {'id':i, 'type':'mm'}))
@@ -116,53 +110,44 @@ def make_geojson(trajectories, graph):
   return fc
 
 def main(argv):
-  inputfile = 'data/bike_path/smoothed.pickle'
-  facilityfile = 'data/mtl_geobase/mtl.pickle'
-  outputfile = 'data/bike_path/mm.pickle'
-  heuristic_factor = 5.0
-  try:
-    opts, args = getopt.getopt(argv,"hi:o:",["ifile=","ofile=","facility="])
-  except getopt.GetoptError:
-    print 'mapmatch [-i <inputfile>] [-o <outputfile>]'
-  for opt, arg in opts:
-    if opt == '-h':
-      print 'mapmatch [-i <inputfile>] [-o <outputfile>]'
-      sys.exit()
-    if opt in ("-i", "--ifile"):
-       inputfile = arg
-    if opt in ("--facility"):
-       facilityfile = arg
-    elif opt in ("-o", "--ofile"):
-       outputfile = arg
+  parser = argparse.ArgumentParser(description="""
+    Mapmatch preprocessed bike trajectories based on a facility graph.
+    The outcome is a pickle file describing every step of the trajectory in 
+    terms of segments that may be linked to an edge in the facility graph.
+    Each segment also have its own geometry, which is the result of constraining 
+    the state on the current link.
+    """, formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+  parser.add_argument('-i', '--ifile', default = 'data/bike_path/smoothed.pickle', 
+    help='input pickle file of preprocessed (with spat.trajectory.preprocess) data.');
+  parser.add_argument('--facility', default = 'data/mtl_geobase/mtl.pickle', 
+    help="""input pickle file containing the facility graph 
+    (with spat.geobase.preprocess) representing the road network""");
+  parser.add_argument('-o', '--ofile', default = 'data/bike_path/mm.pickle', 
+    help='output pickle file containing an array of segments');
+  parser.add_argument('--geojson',
+    help='output geojson file to export constrained geometry');
+  parser.add_argument('--factor', default = 5.0, type=float,
+    help='heuristic factor. Higher is more greedy');
 
-  print 'input file:', inputfile
-  print 'facility:', facilityfile
-  print 'output file:', outputfile
+  args = parser.parse_args()
+  print 'input file:', args.ifile
+  print 'facility:', args.facility
+  print 'output file:', args.ofile
 
-  with open(facilityfile, 'r') as f:
+  with open(args.facility, 'r') as f:
     graph = pickle.load(f)
   graph.build_spatial_edge_index()
-  """with open(facilityfile, 'r') as f:
-    facility = pickle.load(f)
-  graph = SpatialGraph()
-  graph.import_osm(facility)
-  graph.compress()
-  graph.build_spatial_edge_index()"""
 
-  with open(inputfile, 'r') as f:
-    data = pickle.load(f)
+  with open(args.ifile, 'r') as f:
+    preprocessed = pickle.load(f)
 
-  matched = map_match(data, graph, heuristic_factor)
-  result = list(matched)
+  matched = list(map_match(preprocessed, graph, args.factor))
 
-  #print result
-
-  with open(outputfile, 'w+') as f:
-    pickle.dump(result, f)
-  print 'done' 
-
-  with open("data/bike_path/mm.json", 'w+') as f:
-    json.dump(make_geojson(result, graph), f, indent=2)
+  with open(args.ofile, 'w+') as f:
+    pickle.dump(matched, f)
+  if args.geojson != None:
+    with open(args.geojson, 'w+') as f:
+      json.dump(make_geojson(matched, graph), f, indent=2)
 
 if __name__ == "__main__":
   main(sys.argv[1:])
