@@ -30,10 +30,9 @@ Usage
 
 Here's a list of useful standalone python scripts. Help is provided for more info.
 
-* spat.geobase.preprocess 
 * spat.trajectory.preprocess
+* spat.trajectory.mapmatch
 * spat.trajectory.cluster
 * spat.trajectory.features
-* spat.trajectory.export
+* spat.geobase.preprocess 
 * spat.osm.preprocess
-* spat.osm.export
