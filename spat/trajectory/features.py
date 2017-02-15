@@ -1,5 +1,5 @@
-import pickle, geojson, json
-import sys, getopt, math
+import sys, getopt, argparse, fnmatch
+import pickle, csv, geojson, json, math
 import numpy as np
 import shapely.geometry as sg
 from scipy import spatial
@@ -20,28 +20,15 @@ def extract_length(trajectory, graph, predicate):
 
 def load_discontinuity(file):
   sf = shapefile.Reader(file)
-  points = {}
+  points = []
 
-  id_field = next(i for i,v in enumerate(sf.fields) if v[0] == "id_link")-1
   for s, r in zip(sf.shapes(), sf.records()):
-    points[r[id_field]] = {
-      'geometry': sg.Point(s.points[0]), 
-      'properties': {'id': r[id_field]}}
-  return points
-
-def load_discontinuity_inter(file):
-  sf = shapefile.Reader(file)
-  points = {}
-
-  id_field = next(i for i,v in enumerate(sf.fields) if v[0] == "nb_classes")-1
-  for s, r in zip(sf.shapes(), sf.records()):
-    points[r[id_field]] = {
-      'geometry': sg.Point(s.points[0])}
+    points.append({'geometry': sg.Point(s.points[0])})
   return points
 
 def match_discontinuity(points, graph):
   discontinuity_index = {}
-  for i, p in points.iteritems():
+  for i, p in enumerate(points):
     geom = p['geometry']
     nearby = graph.node_intersection(bb_bounds(geom.x, geom.y, 2, 2));
 
@@ -74,7 +61,7 @@ def extract_features(trajectories, graph):
   change_of_facility_type = match_discontinuity(
     load_discontinuity("data/discontinuity/change_of_facility_type"), graph)
   intersections_disc = match_discontinuity(
-    load_discontinuity_inter("data/intersections/intersections_on_bike_network_with_change_in_road_type"), graph)
+    load_discontinuity("data/intersections/intersections_on_bike_network_with_change_in_road_type"), graph)
 
   def any_link(link):
     return True
@@ -99,9 +86,10 @@ def extract_features(trajectories, graph):
       return False
     return graph.edge(link)['type'] == 17
 
-  features = {}
+
+  features = []
   for i, trajectory in enumerate(trajectories):
-    features[i] = {}
+    features.append({})
     features[i]['length'] = extract_length(trajectory, graph, 
       any_link)
     features[i]['length_cycling'] = extract_length(trajectory, graph, 
@@ -122,44 +110,60 @@ def extract_features(trajectories, graph):
     features[i]['intersections_disc'] = extract_discontinuity(
       trajectory, intersections_disc)
 
+    features[i]['left_turn'] = extract_turn(
+      trajectory, left_turn)
+
     print features[i].values()
   return features
 
 def main(argv):
-  inputfile = 'data/bike_path/mm.pickle'
-  facilityfile = 'data/mtl_geobase/mtl.pickle'
-  outputfile = 'data/bike_path/features.json'
-  try:
-    opts, args = getopt.getopt(argv,"hi:o:",["ifile=","ofile=","facility="])
-  except getopt.GetoptError:
-    print 'features [-i <inputfile>] [-o <outputfile>]'
-  for opt, arg in opts:
-    if opt == '-h':
-      print 'features [-i <inputfile>] [-o <outputfile>]'
-      sys.exit()
-    if opt in ("-i", "--ifile"):
-      inputfile = arg
-    if opt in ("--facility"):
-      facilityfile = arg
-    elif opt in ("-o", "--ofile"):
-      outputfile = arg
+  parser = argparse.ArgumentParser(description="""
+    Extract several features from mapmatched bike trajectories.
+    Features are:
+    length
+    length_cycling
+    length_designated_roadway
+    length_bike_lane
+    length_seperate_cycling_link
+    length_offroad
 
-  print 'input file:', inputfile
-  print 'facility:', facilityfile
-  print 'output file:', outputfile
+    end_of_facility
+    change_of_facility_type
+    intersections_disc
+    """, formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+  parser.add_argument('-i', '--ifile', default = 'data/bike_path/mm.pickle', 
+    help='input pickle file of mapmatched (with spat.trajectory.mapmatch) data.');
+  parser.add_argument('--facility', default = 'data/mtl_geobase/mtl.pickle', 
+    help="""input pickle file containing the facility graph 
+    (with spat.geobase.preprocess) representing the road network""");
+  parser.add_argument('-o', '--ofile', 
+    default = ['data/bike_path/features.json'], nargs='+',
+    help="""output file containing an array of segments. 
+    Supported formats include *.json, *.csv""");
 
-  with open(facilityfile, 'r') as f:
+  args = parser.parse_args()
+  print 'input file:', args.ifile
+  print 'facility:', args.facility
+  print 'output file:', args.ofile
+
+  with open(args.facility, 'r') as f:
     graph = pickle.load(f)
   graph.build_spatial_node_index()
 
-  with open(inputfile, 'r') as f:
+  with open(args.ifile, 'r') as f:
     data = pickle.load(f)
 
   features = extract_features(data, graph)
-  print features
 
-  with open(outputfile, 'w+') as f:
-    json.dump(features, f, indent=2)
+  for output in args.ofile:
+    with open(output, 'w+') as f:
+      if fnmatch.fnmatch(output, '*.csv'):
+        writer = csv.writer(f)
+        for row in features:
+          print row.values()
+          writer.writerow(row.values())
+      elif fnmatch.fnmatch(output, '*.json'):
+        json.dump(features, f, indent=2)
 
 if __name__ == "__main__":
   main(sys.argv[1:])
