@@ -16,7 +16,7 @@ def statemap_fn(v):
     np.hstack((v, np.zeros(2))),
     np.hstack((np.zeros(2), v))])
 
-def parse_nodes(nodes, states, graph, idx):
+def parse_nodes(nodes, states, graph):
   previous_edge = None
   current_way = None
 
@@ -33,6 +33,7 @@ def parse_nodes(nodes, states, graph, idx):
 
       if segment['geometry']: # segment not empty
         segment['geometry'].pop() # last coord is not part of segment
+        segment['idx'].append(node[1])
 
         if previous_edge == None: # current segment is floating
           coord = coords_fn(states[node])
@@ -45,14 +46,14 @@ def parse_nodes(nodes, states, graph, idx):
         else:
           segment['bounds'][1] = ((True, previous_way.length))
 
-        print ' ', segment['link']
+        print ' ', segment['link'], segment['idx']
         yield segment
 
       segment = {
         'geometry': [],
         'bounds': [(True, 0.0), None],
         'link': current_edge,
-        'id': idx
+        'idx': [node[1]]
       }
       if current_edge == None: # current segment is floating
         coord = coords_fn(states[previous_node])
@@ -69,6 +70,7 @@ def parse_nodes(nodes, states, graph, idx):
     previous_edge = current_edge
 
   if segment['geometry']:
+    segment['idx'].append(previous_node[1])
     if previous_edge == None: # last segment is floating
       segment['bounds'][1] = (False, 0.0)
       yield segment
@@ -92,18 +94,21 @@ def map_match(trajectories, graph, heuristic_factor):
   for trajectory in trajectories:
     nodes, states = path.solve(trajectory['state'], trajectory['transition'])
 
-    yield list(parse_nodes(nodes, states, graph, trajectory['id']))
+    yield {
+      'segment':list(parse_nodes(nodes, states, graph)),
+      'id': trajectory['id'],
+      'count': len(trajectory['state'])}
 
 def make_geojson(trajectories, graph):
   features = []
-  for i, trajectory in enumerate(trajectories):
+  for trajectory in trajectories:
     mm = []
-    for segment in trajectory:
+    for segment in trajectory['segment']:
       for point in segment['geometry']:
         mm.append(point)
     features.append(geojson.Feature(
       geometry = sg.mapping(sg.LineString(mm)), 
-      properties = {'id':i, 'type':'mm'}))
+      properties = {'id':trajectory['id'], 'type':'mm'}))
 
   fc = geojson.FeatureCollection(features)
   fc['crs'] = {'type': 'EPSG', 'properties': {'code': 2150}}
