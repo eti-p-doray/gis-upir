@@ -1,9 +1,10 @@
 import shapefile
-import rtree
+import rtree, math
 import networkx as nx
 import shapely.geometry as sg
 import geojson as gj
 import collections
+import numpy as np
 
 from utility import *
 
@@ -42,6 +43,9 @@ class SpatialGraph:
   def edge(self, (u, v)):
     return self.graph[u][v]
 
+  def node(self, u):
+    return self.graph.node[u]
+
   def way(self, (u, v)):
     yield self.graph.node[u]['geometry']
     if self.direction(u, v) == False:
@@ -51,6 +55,26 @@ class SpatialGraph:
     for point in inner:
       yield point
     yield self.graph.node[v]['geometry']
+
+  # turn angle in radians. 0 is staight, negative is right.
+  def turn_angle(self, (u, v, k)):
+    link0 = self.graph[u][v]['geometry']
+    if link0:
+      p0 = point_to_vec(link0[-1])
+    else:
+      p0 = point_to_vec(self.graph.node[u]['geometry'])
+
+    p1 = point_to_vec(self.graph.node[v]['geometry'])
+
+    link1 = self.graph[v][k]['geometry']
+    if link1:
+      p2 = point_to_vec(link1[0])
+    else:
+      p2 = point_to_vec(self.graph.node[k]['geometry'])
+
+    v0 = np.array(p1) - np.array(p0)
+    v1 = np.array(p2) - np.array(p1)
+    return np.math.atan2(np.linalg.det([v0,v1]),np.dot(v0,v1))
 
   def inner_way(self, (u, v)):
     if self.direction(u, v) == False:
