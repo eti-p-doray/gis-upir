@@ -34,6 +34,9 @@ def merge_dicts(*dict_args):
     result.update(dictionary)
   return result
 
+def point_to_vec(p):
+  return (p.x, p.y)
+
 def normal2d(v):
   return np.array([v[1], -v[0]])
 def sqnorm2d(v):

@@ -1,6 +1,7 @@
 import sys, getopt, argparse, fnmatch
 import pickle, csv, geojson, json, math
 import numpy as np
+import itertools
 import shapely.geometry as sg
 from scipy import spatial
 import shapefile
@@ -10,7 +11,7 @@ from spat.utility import *
 
 def extract_length(trajectory, graph, predicate):
   length = 0
-  for segment in trajectory:
+  for segment in trajectory['segment']:
     if (predicate(segment['link'])):
       if segment['link'] == None:
         length += sg.LineString(segment['geometry']).length
@@ -44,14 +45,37 @@ def match_discontinuity(points, graph):
     discontinuity_index[best_node].append(i)
   return discontinuity_index
 
+def extract_intersection(trajectory, predicate):
+  count = 0
+
+  for segment in trajectory['segment']:
+    if (segment['link'] != None and segment['bounds'][1][0] == True):
+      if predicate(segment['link'][1]):
+        count += 1
+  return count
+
 def extract_discontinuity(trajectory, discontinuity_index):
   count = 0
 
-  for segment in trajectory:
+  for segment in trajectory['segment']:
     if segment['link'] != None and segment['bounds'][1][0] == True:
       node = segment['link'][1]
       if node in discontinuity_index:
         count += len(discontinuity_index[node])
+  return count
+
+def extract_turn(trajectory, graph, predicate):
+  count = 0
+
+  for segment0, segment1 in pairwise(trajectory['segment']):
+    if (segment0['link'] != None and segment0['bounds'][1][0] == True and
+        segment1['link'] != None and segment1['bounds'][0][0] == True):
+
+      angle = graph.turn_angle((segment0['link'][0], 
+                                segment0['link'][1], 
+                                segment1['link'][1]))
+      if (predicate(math.degrees(angle))):
+        count += 1
   return count
 
 
@@ -85,11 +109,40 @@ def extract_features(trajectories, graph):
     if link == None:
       return False
     return graph.edge(link)['type'] == 17
+  def other_road(link):
+    if link == None:
+      return False
+    return graph.edge(link)['type'] in {1, 2, 3, 4, 9}
+  def arterial(link):
+    if link == None:
+      return False
+    return graph.edge(link)['type'] in {6, 7}
+  def collector(link):
+    if link == None:
+      return False
+    return graph.edge(link)['type'] == 5
+  def highway(link):
+    if link == None:
+      return False
+    return graph.edge(link)['type'] == 8
+  def local(link):
+    if link == None:
+      return False
+    return graph.edge(link)['type'] == 0
 
+  def left_turn(angle):
+    return angle > 45.0
 
-  features = []
-  for i, trajectory in enumerate(trajectories):
-    features.append({})
+  def right_turn(angle):
+    return angle < -45.0
+
+  def any_intersection(node):
+    return True
+
+  features = {}
+  for trajectory in trajectories:
+    i = trajectory['id']
+    features[i] = {}
     features[i]['length'] = extract_length(trajectory, graph, 
       any_link)
     features[i]['length_cycling'] = extract_length(trajectory, graph, 
@@ -103,6 +156,17 @@ def extract_features(trajectories, graph):
     features[i]['length_offroad'] = extract_length(trajectory, graph, 
       offroad)
 
+    features[i]['length_other_road'] = extract_length(trajectory, graph, 
+      other_road)
+    features[i]['length_arterial'] = extract_length(trajectory, graph, 
+      arterial)
+    features[i]['length_collector'] = extract_length(trajectory, graph, 
+      collector)
+    features[i]['length_highway'] = extract_length(trajectory, graph, 
+      highway)
+    features[i]['length_local'] = extract_length(trajectory, graph, 
+      local)
+
     features[i]['end_of_facility'] = extract_discontinuity(
       trajectory, end_of_facility)
     features[i]['change_of_facility_type'] = extract_discontinuity(
@@ -110,8 +174,13 @@ def extract_features(trajectories, graph):
     features[i]['intersections_disc'] = extract_discontinuity(
       trajectory, intersections_disc)
 
-    features[i]['left_turn'] = extract_turn(
-      trajectory, left_turn)
+    features[i]['left_turn'] = extract_turn(trajectory, graph, left_turn)
+    features[i]['right_turn'] = extract_turn(trajectory, graph, right_turn)
+    features[i]['intersections'] = extract_intersection(trajectory, any_intersection)
+
+    features[i]['duration'] = (trajectory['segment'][-1]['idx'][1] - 
+                               trajectory['segment'][0]['idx'][0])
+    features[i]['avg_speed'] = features[i]['length'] / features[i]['duration']
 
     print features[i].values()
   return features
