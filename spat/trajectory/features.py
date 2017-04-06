@@ -5,9 +5,30 @@ import itertools
 import shapely.geometry as sg
 from scipy import spatial
 import shapefile
+import rtree
 
 from spat.spatial_graph import SpatialGraph
 from spat.utility import *
+
+class RegionPartition:
+  def __init__(self, filename):
+    sf = shapefile.Reader(filename);
+
+    self.regions = {}
+    self.spatial_idx = rtree.index.Index()
+    for s, r in zip(sf.iterShapes(), sf.iterRecords()):
+      ring = sg.Polygon(s.points)
+      self.spatial_idx.insert(r[0], ring.bounds)
+      self.regions[r[0]] = ring
+
+  def fit(self, point):
+    print point.bounds
+    neighbors = self.spatial_idx.intersection(point.bounds)
+    for i in neighbors:
+      print '  ', i, self.regions[i]
+      if (self.regions[i].contains(point)):
+        return i
+    return None
 
 def extract_length(trajectory, graph, predicate):
   length = 0
@@ -72,6 +93,44 @@ def extract_turn(trajectory, graph, predicate):
         count += 1
   return count
 
+def link_type_predicate(graph, predicate):
+  def fn(link):
+    if link == None:
+      return False
+    return predicate(graph.edge(link)['type'])
+  return fn
+
+def any_cycling_link(link_type):
+  return link_type > 10
+def designated_roadway(link_type):
+  return link_type == 11
+def bike_lane(link_type):
+  return link_type == 13
+def seperate_cycling_link(link_type):
+  return link_type in {14, 15, 16}
+def offroad_link(link_type):
+  return link_type == 17
+def other_road_type(link_type):
+  return link_type in {1, 2, 3, 4, 9}
+def arterial_link(link_type):
+  return link_type in {6, 7}
+def collector_link(link_type):
+  return link_type == 5
+def highway_link(link_type):
+  return link_type == 8
+def local_link(link_type):
+  return link_type == 0
+
+def left_turn(angle):
+  return angle > 45.0
+def right_turn(angle):
+  return angle < -45.0
+
+def intersection_collection(collection):
+  def fn(node):
+    return node in collection
+  return fn
+
 
 def extract_features(trajectories, graph):
   end_of_facility = match_intersections(
@@ -83,109 +142,59 @@ def extract_features(trajectories, graph):
   traffic_lights = match_intersections(
     load_traffic_lights("data/traffic_lights/All_lights"), graph)
 
-  def any_link(link):
-    return True
-  def any_cycling_link(link):
-    if link == None:
-      return False
-    return graph.edge(link)['type'] > 10
-  def designated_roadway(link):
-    if link == None:
-      return False
-    return graph.edge(link)['type'] == 11
-  def bike_lane(link):
-    if link == None:
-      return False
-    return graph.edge(link)['type'] == 13
-  def seperate_cycling_link(link):
-    if link == None:
-      return False
-    return graph.edge(link)['type'] in {14, 15, 16}
-  def offroad(link):
-    if link == None:
-      return False
-    return graph.edge(link)['type'] == 17
-  def other_road(link):
-    if link == None:
-      return False
-    return graph.edge(link)['type'] in {1, 2, 3, 4, 9}
-  def arterial(link):
-    if link == None:
-      return False
-    return graph.edge(link)['type'] in {6, 7}
-  def collector(link):
-    if link == None:
-      return False
-    return graph.edge(link)['type'] == 5
-  def highway(link):
-    if link == None:
-      return False
-    return graph.edge(link)['type'] == 8
-  def local(link):
-    if link == None:
-      return False
-    return graph.edge(link)['type'] == 0
-
-  def left_turn(angle):
-    return angle > 45.0
-
-  def right_turn(angle):
-    return angle < -45.0
-
-  def any_intersection(node):
-    return True
-  def is_end_of_facility(node):
-    return node in end_of_facility
-  def is_change_of_facility_type(node):
-    return node in change_of_facility_type
-  def is_intersections_disc(node):
-    return node in intersections_disc
-  def is_traffic_light(node):
-    print node
-    return node in traffic_lights
+  partition = RegionPartition("data/partition/ZT2008_1631_v2b_region")
 
   features = {}
   for trajectory in trajectories:
     i = trajectory['id']
     features[i] = {}
     features[i]['length'] = extract_length(trajectory, graph, 
-      any_link)
+      lambda link: True)
     features[i]['length_cycling'] = extract_length(trajectory, graph, 
-      any_cycling_link)
+      link_type_predicate(graph, any_cycling_link))
     features[i]['length_designated_roadway'] = extract_length(trajectory, graph, 
-      designated_roadway)
+      link_type_predicate(graph, designated_roadway))
     features[i]['length_bike_lane'] = extract_length(trajectory, graph, 
-      bike_lane)
+      link_type_predicate(graph, bike_lane))
     features[i]['length_seperate_cycling_link'] = extract_length(trajectory, graph, 
-      seperate_cycling_link)
+      link_type_predicate(graph, seperate_cycling_link))
     features[i]['length_offroad'] = extract_length(trajectory, graph, 
-      offroad)
-
+      link_type_predicate(graph, offroad_link))
     features[i]['length_other_road'] = extract_length(trajectory, graph, 
-      other_road)
+      link_type_predicate(graph, other_road_type))
     features[i]['length_arterial'] = extract_length(trajectory, graph, 
-      arterial)
+      link_type_predicate(graph, arterial_link))
     features[i]['length_collector'] = extract_length(trajectory, graph, 
-      collector)
+      link_type_predicate(graph, collector_link))
     features[i]['length_highway'] = extract_length(trajectory, graph, 
-      highway)
+      link_type_predicate(graph, highway_link))
     features[i]['length_local'] = extract_length(trajectory, graph, 
-      local)
+      link_type_predicate(graph, local_link))
 
     features[i]['left_turn'] = extract_turn(trajectory, graph, left_turn)
     features[i]['right_turn'] = extract_turn(trajectory, graph, right_turn)
 
-    features[i]['end_of_facility'] = extract_intersection(trajectory, is_end_of_facility)
-    features[i]['change_of_facility_type'] = extract_intersection(trajectory, is_change_of_facility_type)
-    features[i]['intersections_disc'] = extract_intersection(trajectory, is_intersections_disc)
-    features[i]['traffic_lights'] = extract_intersection(trajectory, is_traffic_light)
-    features[i]['intersections'] = extract_intersection(trajectory, any_intersection)
+    features[i]['intersections'] = extract_intersection(trajectory, lambda link: True)
+    features[i]['end_of_facility'] = extract_intersection(trajectory, 
+      intersection_collection(end_of_facility))
+    features[i]['change_of_facility_type'] = extract_intersection(trajectory, 
+      intersection_collection(change_of_facility_type))
+    features[i]['intersections_disc'] = extract_intersection(trajectory, 
+      intersection_collection(intersections_disc))
+    features[i]['traffic_lights'] = extract_intersection(trajectory, 
+      intersection_collection(traffic_lights))
 
+
+    partition_begin = partition.fit(sg.Point(trajectory['segment'][0]['geometry'][0]))
+    partition_end = partition.fit(sg.Point(trajectory['segment'][-1]['geometry'][-1]))
+    features[i]['partition'] = (partition_begin, partition_end)
+
+    #print len(trajectory['segment'])
     features[i]['duration'] = (trajectory['segment'][-1]['idx'][1] - 
                                trajectory['segment'][0]['idx'][0])
     features[i]['avg_speed'] = features[i]['length'] / features[i]['duration']
 
-    print features[i].values()
+    #print features[i].values()
   return features
 
 def main(argv):
@@ -217,6 +226,7 @@ def main(argv):
   print 'input file:', args.ifile
   print 'facility:', args.facility
   print 'output file:', args.ofile
+
 
   with open(args.facility, 'r') as f:
     graph = pickle.load(f)
