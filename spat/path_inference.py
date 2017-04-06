@@ -1,9 +1,8 @@
 from scipy import linalg
 from scipy import spatial
 import numpy as np
-import math
+import math, time
 import shapely.geometry as sg
-import time
 
 from kalman import KalmanFilter
 from priority_queue import PriorityQueue
@@ -272,6 +271,8 @@ class PathInference:
         self.statemap, self.coords, self.greedy, self.hop, index)
 
   def try_enqueue(self, path):
+    if (path.priority() > 300000):
+      return
     if (np.isfinite(path.cost) and 
         (path.current() not in self.costs or 
          path.cost < self.costs[path.current()])):
@@ -282,6 +283,8 @@ class PathInference:
       self.queue.put(path, path.priority())
 
   def try_append(self, path, edge):
+    if (path.priority() > 300000):
+      return
     if edge in self.visited and path.index < self.visited[edge]:
       return
     self.try_enqueue(path.branch(edge))
@@ -299,7 +302,8 @@ class PathInference:
       return path
 
     if path.edge == None:
-      for edge in self.nearby(states[i]):
+      projections = self.nearby(states[i], 20.0)
+      for edge in projections:
         (a, b) = edge.object
         self.try_append(path, (a, b))
         self.try_append(path, (b, a))
@@ -320,25 +324,27 @@ class PathInference:
     self.queue = PriorityQueue()
     start_time = time.time()
 
-    for i, state in enumerate(states):
-      projections = peek(self.nearby(state))
-      if projections != None:
-        break
+    projections = peek(self.nearby(states[0], 150.0))
     if projections == None:
-      return [], []
-    self.costs[None, i] = (0.0, 0.0, None)
+      return None, self.states
+    self.costs[None, 0] = (0.0, 0.0, None)
     for p in projections:
       (a, b) = p.object
-      self.try_enqueue(self.make_path(states, transition, i).append((a,b)))
-      self.try_enqueue(self.make_path(states, transition, i).append((b,a)))
+      self.try_enqueue(self.make_path(states, transition, 0).append((a,b)))
+      self.try_enqueue(self.make_path(states, transition, 0).append((b,a)))
 
     if self.queue.empty():
-      return [], []
+      return None, self.states
 
     while not self.queue.empty():
       path = self.visit(states, self.queue.get())
-      if path.index == len(states):
+      if path == None:
+        return None, self.states
+      if path.index == len(states) and path.edge != None:
         break
+
+    if path.index < len(states):
+      return None, self.states
 
     print 'elapsed_time ', time.time() - start_time
 
@@ -347,10 +353,7 @@ class PathInference:
       while r != None:
         yield r
         r = self.previous[r]
-    #print self.previous
-    #print self.states
-    #for key in backtrack():
-    #  print key
+
     self.states = { key: self.states[key] for key in backtrack() }
 
     print 'cost ', path.cost, path.priority()

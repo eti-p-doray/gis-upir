@@ -1,4 +1,4 @@
-import sys, getopt, argparse
+import sys, argparse
 import pickle, geojson, json, math
 import shapely.geometry as sg
 from scipy import spatial
@@ -13,8 +13,8 @@ def coords_fn(state):
 
 def statemap_fn(v):
   return np.asmatrix([
-    np.hstack((v, np.zeros(2))),
-    np.hstack((np.zeros(2), v))])
+    np.hstack((v, np.zeros(4))),
+    np.hstack((np.zeros(3), v, np.zeros(1)))])
 
 def parse_nodes(nodes, states, graph):
   previous_edge = None
@@ -44,7 +44,7 @@ def parse_nodes(nodes, states, graph):
           projection = previous_way.project(sg.Point(coords_fn(states[previous_node])))
           segment['bounds'][1] = (False, projection)
         else:
-          segment['bounds'][1] = ((True, previous_way.length))
+          segment['bounds'][1] = (True, previous_way.length)
 
         print ' ', segment['link'], segment['idx']
         yield segment
@@ -71,33 +71,36 @@ def parse_nodes(nodes, states, graph):
 
   if segment['geometry']:
     segment['idx'].append(previous_node[1])
-    if previous_edge == None: # last segment is floating
-      segment['bounds'][1] = (False, 0.0)
-      yield segment
-    else:
-      projection = previous_way.project(sg.Point(coords_fn(states[previous_node])))
-      segment['bounds'][1] = (False, projection)
-      yield segment
+    assert previous_edge != None
+    projection = current_way.project(sg.Point(coords_fn(states[previous_node])))
+    segment['bounds'][1] = (False, projection)
+    yield segment
 
 
 def map_match(trajectories, graph, heuristic_factor):
 
-  def nearby_fn(state):
-    quantile = 10.0
+  def nearby_fn(state, quantile):
     ell = quantile * linalg.sqrtm(state.P[0:2,0:2])
     height = math.sqrt(ell[0][0]**2 + ell[1][0]**2)
     width = math.sqrt(ell[0][1]**2 + ell[1][1]**2)
+    #print height, width
+
     return graph.edge_intersection(
       bb_bounds(state.x[0], state.x[1], width, height))
 
-  path = PathInference(graph, statemap_fn, coords_fn, nearby_fn, heuristic_factor, 100.0)
+  path = PathInference(graph, statemap_fn, coords_fn, nearby_fn, heuristic_factor, 200.0)
   for trajectory in trajectories:
+    print trajectory['id']
     nodes, states = path.solve(trajectory['state'], trajectory['transition'])
-
-    yield {
-      'segment':list(parse_nodes(nodes, states, graph)),
-      'id': trajectory['id'],
-      'count': len(trajectory['state'])}
+    if nodes == None:
+      print 'trashing ', trajectory['id'], ' due to incomplete mapmatch'
+      continue
+    segments = list(parse_nodes(nodes, states, graph))
+    if (len(segments) > 0):
+      yield {
+        'segment':segments,
+        'id': trajectory['id'],
+        'count': len(trajectory['state'])}
 
 def make_geojson(trajectories, graph):
   features = []
@@ -106,9 +109,10 @@ def make_geojson(trajectories, graph):
     for segment in trajectory['segment']:
       for point in segment['geometry']:
         mm.append(point)
-    features.append(geojson.Feature(
-      geometry = sg.mapping(sg.LineString(mm)), 
-      properties = {'id':trajectory['id'], 'type':'mm'}))
+    if len(mm) > 1:
+      features.append(geojson.Feature(
+        geometry = sg.mapping(sg.LineString(mm)), 
+        properties = {'id':trajectory['id'], 'type':'mm'}))
 
   fc = geojson.FeatureCollection(features)
   fc['crs'] = {'type': 'EPSG', 'properties': {'code': 2150}}
@@ -131,7 +135,7 @@ def main(argv):
     help='output pickle file containing an array of segments');
   parser.add_argument('--geojson',
     help='output geojson file to export constrained geometry');
-  parser.add_argument('--factor', default = 5.0, type=float,
+  parser.add_argument('--factor', default = 10.0, type=float,
     help='heuristic factor. Higher is more greedy');
 
   args = parser.parse_args()

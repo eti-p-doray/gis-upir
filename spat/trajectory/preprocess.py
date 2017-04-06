@@ -1,20 +1,25 @@
 import sys, os, fnmatch, argparse
 import pickle, csv, geojson, json, math, datetime
-import shapely.geometry as sg
 import pyproj as proj
 from itertools import izip
+from osgeo import gdalnumeric, gdal
+# Note: importing shapely before osgeo triggers an Import error; _GEOSArea not found.
+import shapely.geometry as sg 
 
 import numpy as np
 
 from spat.kalman import KalmanFilter
 from spat.utility import *
+import spat.raster as raster
 
 def load_csv(data):
   rows = iter(data)
   header = rows.next()
+  #print header
   latitude_idx = next(i for i,v in enumerate(header) if v == "latitude")
   longitude_idx = next(i for i,v in enumerate(header) if v == "longitude")
   speed_idx = next(i for i,v in enumerate(header) if v == "speed")
+  altitude_idx = next(i for i,v in enumerate(header) if v == "altitude")
   time_idx = next(i for i,v in enumerate(header) if v == "recorded_at")
   hort_acc_idx = next(i for i,v in enumerate(header) if v == "hort_accuracy")
   vert_acc_idx = next(i for i,v in enumerate(header) if v == "vert_accuracy")
@@ -62,7 +67,7 @@ def load_csv(data):
     except RuntimeError:
       previous_id = -1
       continue
-    obs = [coord[0], coord[1], float(row[speed_idx])]
+    obs = [coord[0], coord[1], float(row[altitude_idx]), float(row[speed_idx])]
     quantile = 1.96
     acc = [float(row[hort_acc_idx])/quantile, float(row[vert_acc_idx])/quantile]
     observations.append(obs);
@@ -80,17 +85,18 @@ def load_all(files, max_count):
           return
   
 def obs_transition_speed(x):
-  return [x[0], x[1], math.sqrt(x[2]**2 + x[3]**2)]
+  return [x[0], x[1], x[2], math.sqrt(x[3]**2 + x[4]**2)]
 
 def obs_transition(x):
-  return [x[0], x[1]]
+  return [x[0], x[1], x[2]]
 
 def filter_state(trajectories):
-  P = np.identity(4) * 1000.0
-  F = np.identity(4)
-  F[0][2] = 1.0
-  F[1][3] = 1.0
-  Q = np.diag([2.0, 2.0, 2.0, 2.0])
+  P = np.identity(6) * 10.0
+  F = np.identity(6)
+  F[0][3] = 1.0
+  F[1][4] = 1.0
+  F[2][5] = 1.0
+  Q = np.diag([2.0, 2.0, 2.0, 2.0, 2.0, 2.0])
 
   def init_trajectory(t):
     return {
@@ -104,7 +110,7 @@ def filter_state(trajectories):
 
   for trajectory in trajectories:
     y = trajectory['observations'][0]
-    state = KalmanFilter(y[0:2] + [0.0, 0.0], P)
+    state = KalmanFilter(y[0:3] + [0.0, 0.0, 0.0], P)
     trajectory['state'] = []
     trajectory['transition'] = (F, Q)
 
@@ -116,33 +122,54 @@ def filter_state(trajectories):
       state.time_update(F, Q)
       if observation != None:
         if observation[2] >= 0.0:
-          R = np.diag([accuracy[0]**2, accuracy[1]**2, 1.0])
+          R = np.diag([accuracy[0]**2, accuracy[1]**2, 10.0, 1.0])
           error = state.unscented_measurment_update(observation, 
                                                     obs_transition_speed, R)
         else:
-          R = np.diag([accuracy[0]**2, accuracy[1]**2])
-          error = state.unscented_measurment_update(observation[0:2], 
+          R = np.diag([accuracy[0]**2, accuracy[1]**2, 10.0])
+          error = state.unscented_measurment_update(observation[0:3], 
                                                     obs_transition, R)
 
-        if error > 200.0**2: # trajectory is broken
+        if error > 50.0**2: # trajectory is broken
           print 'trashing ', trajectory['id'], ' due to broken path'
           break
-        else:
-          trajectory['state'].append(state.copy())
+      trajectory['state'].append(state.copy())
 
     if len(trajectory['state']) >= 2:
       yield trajectory
 
 def smooth_state(trajectories):
+  #srcProj = proj.Proj(init='epsg:2950')
+  #dstProj = proj.Proj(init='epsg:4326')
+
+
+  #raster_path = "data/elevation/30n090w_20101117_gmted_min075.tif"
+  #srcArray = gdalnumeric.LoadFile(raster_path)
+  #srcImage = gdal.Open(raster_path)
+  #geoTrans = srcImage.GetGeoTransform()
+
   filtered_trajectories = filter_state(trajectories)
   for t in filtered_trajectories:
     (F, Q) = t['transition']
     next_state = t['state'][-1]
 
+    broken = False
     for i, _ in drop(enumerate_reversed(t['state']), 1):
       t['state'][i].smooth_update(next_state, F, Q)
       next_state = t['state'][i]
-    yield t
+      if math.log10(np.linalg.det(next_state.P)) > 3*next_state.P.shape[0]:
+        print 'trashing ', t['id'], ' due to broken path'
+        broken = True
+        break
+      #if (np.linalg.det(next_state.P) > 10**next_state.P.shape[0]):
+      #    print np.linalg.det(next_state.P)
+      #if t['state'][i].x != None and t['observations'][i] != None:
+        #print t['state'][i].x[2], t['observations'][i][2],
+        #coord = proj.transform(srcProj, dstProj, 
+        #  t['state'][i].x[0], t['state'][i].x[1])
+        #print raster.at(srcArray, geoTrans, coord)
+    if not broken:
+      yield t
 
 
 def make_geojson(trajectories):
