@@ -3,9 +3,9 @@ import pickle, geojson, json, math
 import numpy as np
 import itertools
 
+from spat.trajectory.features import *
 from spat.priority_queue import PriorityQueue
 from spat.spatial_graph import SpatialGraph
-from spat.trajectory.features import *
 
 
 def inverse_optimal_control(data,
@@ -33,8 +33,10 @@ def inverse_optimal_control(data,
       b1t *= b1
       b2t *= b2
 
-      weights -= learning_rate * np.divide(np.multiply(mc, gradient), np.sqrt(vc) + e)
+      print 'diff', np.divide(mc, np.sqrt(vc) + e)
+      weights -= learning_rate * np.divide(mc, np.sqrt(vc) + e)
       print 'weights ', weights
+      print
 
   return weights
 
@@ -165,6 +167,8 @@ def main(argv):
   print 'mapmatch:', args.mapmatch
   print 'facility:', args.facility
 
+  np.set_printoptions(linewidth = 500)
+
   #print 'output file:', args.ofile
 
   with open(args.facility, 'r') as f:
@@ -192,8 +196,18 @@ def main(argv):
       fcns = [
         length_feature(lambda link: True),
         length_feature(link_type_predicate(graph, any_cycling_link)),
+        length_feature(link_type_predicate(graph, designated_roadway)),
+        length_feature(link_type_predicate(graph, bike_lane)),
+        length_feature(link_type_predicate(graph, seperate_cycling_link)),
+        length_feature(link_type_predicate(graph, offroad_link)),
+        length_feature(link_type_predicate(graph, other_road_type)),
+        length_feature(link_type_predicate(graph, arterial_link)),
+        length_feature(link_type_predicate(graph, collector_link)),
+        length_feature(link_type_predicate(graph, highway_link)),
+        length_feature(link_type_predicate(graph, local_link)),
         turn_feature(graph, left_turn),
         turn_feature(graph, right_turn),
+        intersection_feature(lambda u: True),
         intersection_feature(intersection_collection(end_of_facility)),
         intersection_feature(intersection_collection(change_of_facility_type)),
         intersection_feature(intersection_collection(intersections_disc)),
@@ -215,13 +229,12 @@ def main(argv):
     return features
 
   def gradient_fn(param, example):
-    weights = 1.0 - 2.0 / (1.0 + np.exp(param))
-    feature = feature_prediction(weights, example[1])
-    print feature
-    print example[0]
+    #weights = 1.0 - 2.0 / (1.0 + np.exp(param))
+    feature = feature_prediction(param, example[1])
+    print 'features', feature
+    print 'exemple', example[0]
     return np.divide(example[0] - feature, example[0] + 1.0)
 
-  weights = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
   data = []
   for trajectory in mm:
     if trajectory['id'] not in features:
@@ -230,14 +243,26 @@ def main(argv):
     example = (np.array([
         feature['length'],
         feature['length_cycling'],
+        feature['length_designated_roadway'],
+        feature['length_bike_lane'],
+        feature['length_seperate_cycling_link'],
+        feature['length_offroad'],
+        feature['length_other_road'],
+        feature['length_arterial'],
+        feature['length_collector'],
+        feature['length_highway'],
+        feature['length_local'],
         feature['left_turn'],
         feature['right_turn'],
+        feature['intersections'],
         feature['end_of_facility'],
         feature['change_of_facility_type'],
         feature['intersections_disc'],
         feature['traffic_lights'],
       ]), trajectory)
     data.append(example)
+
+  weights = np.ones(18)
 
   weights = inverse_optimal_control(data, gradient_fn, weights, 
     0.01, 0.1, 200)
