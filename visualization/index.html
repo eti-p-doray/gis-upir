@@ -1,4 +1,3 @@
-<!DOCTYPE html>
 <html>
 <head>
 <title>Hello</title>
@@ -8,19 +7,14 @@
 <script src="resources/papaparse.js" type="text/javascript"></script>
 <script src="resources/shp.min.js" type="text/javascript"></script>
 <script src="resources/jquery-3.1.1.js" type="text/javascript"></script>
+<script src="resources/rainbowvis.js" type="text/javascript"></script>
 <script>
 
 "use strict";
 
 proj4.defs('EPSG:2150', 'PROJCS["NAD83(CSRS98) / MTM zone 8 (deprecated)",GEOGCS["NAD83(CSRS98)",DATUM["D_North_American_1983_CSRS98",SPHEROID["GRS_1980",6378137,298.257222101]],PRIMEM["Greenwich",0],UNIT["Degree",0.017453292519943295]],PROJECTION["Transverse_Mercator"],PARAMETER["latitude_of_origin",0],PARAMETER["central_meridian",-73.5],PARAMETER["scale_factor",0.9999],PARAMETER["false_easting",304800],PARAMETER["false_northing",0],UNIT["Meter",1]]');
 
-function rainbowColor(length, maxLength) {
-  var i = (length * 255 / maxLength);
-  var r = Math.round(Math.sin(0.024 * i + 0) * 127 + 128);
-  var g = Math.round(Math.sin(0.024 * i + 2) * 127 + 128);
-  var b = Math.round(Math.sin(0.024 * i + 4) * 127 + 128);
-  return 'rgb(' + r + ',' + g + ',' + b + ')';
-}
+proj4.defs('urn:ogc:def:crs:EPSG::2950', 'PROJCS["NAD83(CSRS) / MTM zone 8",GEOGCS["NAD83(CSRS)",DATUM["D_North_American_1983_CSRS98",SPHEROID["GRS_1980",6378137,298.257222101]],PRIMEM["Greenwich",0],UNIT["Degree",0.017453292519943295]],PROJECTION["Transverse_Mercator"],PARAMETER["latitude_of_origin",0],PARAMETER["central_meridian",-73.5],PARAMETER["scale_factor",0.9999],PARAMETER["false_easting",304800],PARAMETER["false_northing",0],UNIT["Meter",1]]');
 
 var strokes = {
   road: new ol.style.Stroke({
@@ -30,7 +24,7 @@ var strokes = {
     color: 'green', width: 1.0
   }),
   highlighted: new ol.style.Stroke({
-    color: 'LightSkyBlue', width: 2.0
+    color: 'yellow', width: 2.0
   }),
   selected: new ol.style.Stroke({
     color: 'LightSkyBlue', width: 2.0
@@ -42,9 +36,13 @@ var strokes = {
     color: 'red', width: 1.0
   }),
   mm_trajectory: new ol.style.Stroke({
-    color: 'yellow', width: 4.0
+    color: 'LightSkyBlue', width: 1.0
+  }),
+  ioc_trajectory: new ol.style.Stroke({
+    color: 'red', width: 2.0
   })
 };
+
 var styles = {
   road: new ol.style.Style({stroke: strokes.road}),
   cycling: new ol.style.Style({stroke: strokes.cycling}),
@@ -54,7 +52,13 @@ var styles = {
 
   raw_trajectory: new ol.style.Style({stroke: strokes.raw_trajectory}),
   smoothed_trajectory: new ol.style.Style({stroke: strokes.smoothed_trajectory}),
+  smoothed_points: new ol.style.Style({image: new ol.style.Circle({
+    radius: 5,
+    fill: null,
+    stroke: strokes.smoothed_trajectory
+  })}),
   mm_trajectory: new ol.style.Style({stroke: strokes.mm_trajectory}),
+  ioc_trajectory: new ol.style.Style({stroke: strokes.ioc_trajectory}),
 };
 
 function clusterStyle(feature) {
@@ -77,9 +81,9 @@ function Map() {
       })
     ],
     view: new ol.View({
-      center: [-73, 45],
-      zoom: 9,
-      projection: 'EPSG:4326'
+      center: [-8198482, 5687901],
+      zoom: 10,
+      projection: 'EPSG:3857'
     })
   });
 }
@@ -102,6 +106,9 @@ Map.prototype.addSelectInteraction =
     e.selected.forEach(function(feature) {
       let layer = select.getLayer(feature);
       feature.layer = layer;
+      let properties = feature.getProperties();
+      console.log(properties);
+      console.log(feature.getGeometry().getType());
       if (layer.name in onSelect) {
         var handler = onSelect[layer.name];
         handler(feature, layer);
@@ -126,7 +133,7 @@ Map.prototype.removeStyle = function(layer, features) {
   });
 }
 
-Map.prototype.addLayer = function(vector, style, name) {
+Map.prototype.addVectorLayer = function(vector, style, name) {
   var vectorLayer = new ol.layer.Vector({
     source: vector, style: style
   });
@@ -138,13 +145,21 @@ Map.prototype.addLayer = function(vector, style, name) {
   return vectorLayer;
 }
 
+Map.prototype.addImageLayer = function(raster) {
+  var rasterLayer = new ol.layer.Image({
+    source: raster
+  });
+  this.map.addLayer(rasterLayer);
+  return rasterLayer;
+}
+
 Map.prototype.addShp = function(name, style) {
   var deferred = new $.Deferred();
   shp(name).then(function(geojson){
     var vectorSource = new ol.source.Vector({
       features: (new ol.format.GeoJSON()).readFeatures(geojson)
     });
-    var vl = this.addLayer(vectorSource, style, name);
+    var vl = this.addVectorLayer(vectorSource, style, name);
     deferred.resolve(vl);
   }.bind(this));
   return deferred.promise();
@@ -155,12 +170,21 @@ Map.prototype.addGeojson = function(request, style, name) {
   var deferred = new $.Deferred();
   $.ajax(request).then(function(geojson){
     var vectorSource = new ol.source.Vector({
-      features: (new ol.format.GeoJSON()).readFeatures(geojson, {featureProjection: 'EPSG:4326'})
+      features: (new ol.format.GeoJSON()).readFeatures(geojson, {featureProjection: 'EPSG:3857'})
     });
-    var vl = this.addLayer(vectorSource, style, name);
+    var vl = this.addVectorLayer(vectorSource, style, name);
     deferred.resolve(vl);
   }.bind(this));
   return deferred.promise();
+}
+
+Map.prototype.addRaster = function(request) {
+  var rasterSource = new ol.source.ImageStatic({
+    url: request,
+    projection: 'EPSG:4326',
+    imageExtent: [-90.0001389, 29.9998611, -60.0001389, 49.9998611]
+  });
+  this.addImageLayer(rasterSource);
 }
 
 function Controller() {
@@ -203,6 +227,13 @@ Controller.prototype.addSelectInteractions =
     console.log(properties);
   }.bind(this);
 
+  this.map.addSelectInteraction({}, onSelect, onDeselect);
+}
+
+Controller.prototype.addSimpleSelectInteractions = function() {
+  let onSelect = {};
+  let onDeselect = {};
+
   this.map.addSelectInteraction({
 
   }, onSelect, onDeselect);
@@ -213,18 +244,49 @@ Controller.prototype.bind = function() {
   this.selection = new Set([]);
   this.highlighted = [];
 
+  /*let trajectoriesPromise = 
+    this.map.addGeojson("http://localhost:8000/data/bike_path/smoothed.json", function(feature) {
+    
+    let properties = feature.getProperties();
+    let height = properties.height;
+    //console.log(height);
+
+    var rainbow = new Rainbow(); 
+    rainbow.setNumberRange(0, 80);
+    rainbow.setSpectrum('blue', 'red');
+
+    let style = new ol.style.Style({image: new ol.style.Circle({
+      radius: 3,
+      fill: null,
+      stroke: new ol.style.Stroke({
+        color: '#' + rainbow.colourAt(height), width: 1.0
+      })
+    })});
+
+    return style;
+  });*/
+
   let trajectoriesPromise = 
-    this.map.addGeojson("http://localhost:8000/data/bike_path/smoothed.json",
-    function(feature) { return styles.smoothed_trajectory; });
+    this.map.addGeojson("http://localhost:8000/data/bike_path/smoothed.json", styles.smoothed_trajectory);
 
-  let clusterPromise = this.map.addGeojson("cluster/center.json", clusterStyle);
+  /*this.map.addRaster("http://localhost:8000/data/elevation/30n090w_20101117_gmted_mea300.tif");*/
 
-  $.when(trajectoriesPromise, clusterPromise).then(this.addSelectInteractions.bind(this));
+  //let clusterPromise = this.map.addGeojson("cluster/center.json", clusterStyle);
 
-  //this.map.addGeojson("http://localhost:8000/data/osm/mtl.json");
-  this.map.addGeojson("http://localhost:8000/data/bike_path/mm.json", 
-    function(feature) { return styles.mm_trajectory; });
+  //$.when(trajectoriesPromise, clusterPromise).then(this.addSelectInteractions.bind(this));
 
+  /*this.map.addShp("http://localhost:8000/data/discontinuity/change_of_facility_type");
+  this.map.addShp("http://localhost:8000/data/discontinuity/end_of_facility");
+  this.map.addShp("http://localhost:8000/data/intersections/intersections_on_bike_network_with_change_in_road_type");*/
+
+  //this.map.addGeojson("http://localhost:8000/data/mtl_geobase/road.json", styles.road);
+  /*this.map.addGeojson("http://localhost:8000/data/bike_path/ioc.json", styles.ioc_trajectory);*/
+  //this.map.addGeojson("http://localhost:8000/data/mtl_geobase/cycling.json", styles.cycling);
+
+  this.map.addGeojson("http://localhost:8000/data/bike_path/mm.json", styles.mm_trajectory);
+
+  /*this.map.addShp("http://localhost:8000/data/partition/ZT2008_1631_v2b_region", styles.mm_trajectory);*/
+  this.addSimpleSelectInteractions();
 
 };
 
