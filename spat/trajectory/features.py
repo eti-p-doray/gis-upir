@@ -2,13 +2,17 @@ import sys, getopt, argparse, fnmatch
 import pickle, csv, geojson, json, math
 import numpy as np
 import itertools
-import shapely.geometry as sg
-from scipy import spatial
-import shapefile
-import rtree
+import shapefile, rtree
+import pyproj as proj
 
+import spat.raster as raster
 from spat.spatial_graph import SpatialGraph
 from spat.utility import *
+from spat.stats import *
+
+# Note: importing shapely before osgeo triggers an Import error; _GEOSArea not found.
+import shapely.geometry as sg
+import scipy.stats
 
 class RegionPartition:
   def __init__(self, filename):
@@ -22,10 +26,10 @@ class RegionPartition:
       self.regions[r[0]] = ring
 
   def fit(self, point):
-    print point.bounds
+    #print point.bounds
     neighbors = self.spatial_idx.intersection(point.bounds)
     for i in neighbors:
-      print '  ', i, self.regions[i]
+      #print '  ', i, self.regions[i]
       if (self.regions[i].contains(point)):
         return i
     return None
@@ -93,6 +97,25 @@ def extract_turn(trajectory, graph, predicate):
         count += 1
   return count
 
+def extract_nodes(trajectory, graph):
+  for segment in trajectory['segment']:
+    if (segment['link'] != None and segment['bounds'][0][0] == True):
+      coord = graph.intersection(segment['link'][0])
+      yield (coord.x, coord.y)
+    else:
+      yield segment['geometry'][0]
+    yield trajectory['segment'][-1]['geometry'][-1]
+
+def extract_elevation_stats(trajectory, graph, elevation):
+  dstProj = proj.Proj(init='epsg:4326')
+  stats = RunningStats()
+  for n1, n2 in pairwise(extract_nodes(trajectory, graph)):
+    e1 = elevation.at(n1, dstProj)
+    e2 = elevation.at(n1, dstProj)
+    d = sg.Point(n1).distance(sg.Point(n2))
+    stats.push(e1 - e2 / d, d)
+  return stats
+
 def link_type_predicate(graph, predicate):
   def fn(link):
     if link == None:
@@ -141,11 +164,14 @@ def extract_features(trajectories, graph):
     load_discontinuity("data/intersections/intersections_on_bike_network_with_change_in_road_type"), graph)
   traffic_lights = match_intersections(
     load_traffic_lights("data/traffic_lights/All_lights"), graph)
+  elevation = raster.RasterImage("data/elevation/30n090w_20101117_gmted_min075.tif")
 
   partition = RegionPartition("data/partition/ZT2008_1631_v2b_region")
 
   features = {}
   for trajectory in trajectories:
+    print trajectory['id']
+
     i = trajectory['id']
     features[i] = {}
     features[i]['length'] = extract_length(trajectory, graph, 
@@ -193,6 +219,10 @@ def extract_features(trajectories, graph):
     features[i]['duration'] = (trajectory['segment'][-1]['idx'][1] - 
                                trajectory['segment'][0]['idx'][0])
     features[i]['avg_speed'] = features[i]['length'] / features[i]['duration']
+
+    elev_stats = extract_elevation_stats(trajectory, graph, elevation)
+    features[i]['elev_var'] = elev_stats.variance()
+    features[i]['elev_skew'] = elev_stats.skewness()
 
     #print features[i].values()
   return features
