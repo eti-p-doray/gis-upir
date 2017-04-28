@@ -8,7 +8,7 @@ from spat.priority_queue import PriorityQueue
 from spat.spatial_graph import SpatialGraph
 
 
-def inverse_optimal_control(data,
+def inverse_optimal_control(data, batchsize,
                             eval_gradient, weights, 
                             learning_rate, precision, nb_epochs):
   b1 = 0.9
@@ -22,8 +22,9 @@ def inverse_optimal_control(data,
 
   for i in range(nb_epochs):
     np.random.shuffle(data)
-    for example in data:
-      gradient = eval_gradient(weights, example)
+    for j in xrange(0, len(data), batchsize):
+      batch = data[j:j+batchsize]
+      gradient = eval_gradient(weights, batch)
       print 'gradient', gradient
 
       m = b1 * m + (1.0 - b1) * gradient
@@ -228,12 +229,14 @@ def main(argv):
     (path, features) = best_path(weights, trajectory)
     return features
 
-  def gradient_fn(param, example):
-    #weights = 1.0 - 2.0 / (1.0 + np.exp(param))
-    feature = feature_prediction(param, example[1])
-    print 'features', feature
-    print 'exemple', example[0]
-    return np.divide(example[0] - feature, example[0] + 1.0)
+  def gradient_fn(param, examples):
+    gradient = np.zeros(param.shape)
+    for example in examples:
+      feature = feature_prediction(param, example[1])
+      print 'features', feature
+      print 'exemple', example[0]
+      gradient += np.divide(example[0] - feature, example[0] + 1.0)
+    return gradient
 
   data = []
   for trajectory in mm:
@@ -264,7 +267,7 @@ def main(argv):
 
   weights = np.ones(18)
 
-  weights = inverse_optimal_control(data, gradient_fn, weights, 
+  weights = inverse_optimal_control(data, 16, gradient_fn, weights, 
     0.01, 0.1, 200)
 
 
