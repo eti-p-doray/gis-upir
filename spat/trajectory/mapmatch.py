@@ -1,28 +1,33 @@
 import sys, argparse
 import pickle, geojson, json, math
-import shapely.geometry as sg
 from scipy import spatial
 from scipy import linalg
 
+from spat.trajectory.features import *
 from spat.spatial_graph import SpatialGraph
 from spat.path_inference import PathInference
 from spat.utility import *
+
+import shapely.geometry as sg
 
 def coords_fn(state):
     return state.x[0:2]
 
 def statemap_fn(v):
   return np.asmatrix([
-    np.hstack((v, np.zeros(4))),
-    np.hstack((np.zeros(3), v, np.zeros(1)))])
+    np.hstack((v, np.zeros(2))),
+    np.hstack((np.zeros(2), v))])
 
 def parse_nodes(nodes, states, graph):
   previous_edge = None
+  index = 0
   current_way = None
 
-  segment = { 'geometry': [] }
+  segment = { 'geometry': [], 'idx': [0] }
   for node in nodes:
     current_edge = node[0]
+
+    #print node, coords_fn(states[node])
 
     if current_edge != previous_edge: # end of segment      
       previous_way = current_way
@@ -32,7 +37,7 @@ def parse_nodes(nodes, states, graph):
         current_way = None
 
       if segment['geometry']: # segment not empty
-        segment['geometry'].pop() # last coord is not part of segment
+        #segment['geometry'].pop() # last coord is not part of segment
         segment['idx'].append(node[1])
 
         if previous_edge == None: # current segment is floating
@@ -47,14 +52,16 @@ def parse_nodes(nodes, states, graph):
           segment['bounds'][1] = (True, previous_way.length)
 
         print ' ', segment['link'], segment['idx']
+
         yield segment
 
       segment = {
         'geometry': [],
         'bounds': [(True, 0.0), None],
         'link': current_edge,
-        'idx': [node[1]]
+        'idx': [index]
       }
+
       if current_edge == None: # current segment is floating
         coord = coords_fn(states[previous_node])
         segment['geometry'].append(coord)
@@ -63,14 +70,16 @@ def parse_nodes(nodes, states, graph):
       elif previous_edge == None: # previous segment is floating
         projection = current_way.project(sg.Point(coords_fn(states[node])))
         segment['bounds'][0] = (False, projection)
+        segment['idx']
 
     segment['geometry'].append(coords_fn(states[node]))
 
+    index = node[1]
     previous_node = node
     previous_edge = current_edge
 
   if segment['geometry']:
-    segment['idx'].append(previous_node[1])
+    segment['idx'].append(node[1])
     assert previous_edge != None
     projection = current_way.project(sg.Point(coords_fn(states[previous_node])))
     segment['bounds'][1] = (False, projection)
@@ -88,7 +97,43 @@ def map_match(trajectories, graph, heuristic_factor):
     return graph.edge_intersection(
       bb_bounds(state.x[0], state.x[1], width, height))
 
-  path = PathInference(graph, statemap_fn, coords_fn, nearby_fn, heuristic_factor, 200.0)
+  distance_costs = np.array([
+    1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+  intersection_costs = np.array([
+    1.0, 0.0])
+
+  end_of_facility = match_intersections(
+    load_discontinuity("data/discontinuity/end_of_facility"), graph)
+
+  def distance_cost_fn(distance, link):
+    if link == None:
+      return 300.0 * distance
+    predicates = [
+      lambda link: True,
+      link_type_predicate(graph, any_cycling_link),
+      link_type_predicate(graph, designated_roadway),
+      link_type_predicate(graph, bike_lane),
+      link_type_predicate(graph, seperate_cycling_link),
+      link_type_predicate(graph, offroad_link),
+      link_type_predicate(graph, other_road_type),
+    ]
+    return np.dot(
+      np.array(map(lambda pred:pred(link), predicates)), 
+      distance_costs)
+
+  def intersection_cost_fn((u, v, k)):
+    node_predicates = [
+      lambda link: True,
+      intersection_collection(end_of_facility),
+    ]
+    return np.dot(
+      np.array(map(lambda pred:pred(v), node_predicates)), 
+      intersection_costs)
+
+
+  path = PathInference(graph, statemap_fn, coords_fn, 
+    distance_cost_fn, intersection_cost_fn, 
+    nearby_fn, heuristic_factor)
   for trajectory in trajectories:
     print trajectory['id']
     nodes, states = path.solve(trajectory['state'], trajectory['transition'])
@@ -107,6 +152,16 @@ def make_geojson(trajectories, graph):
   for trajectory in trajectories:
     mm = []
     for segment in trajectory['segment']:
+      """if segment['link'] != None:
+        if segment['bounds'][0][1]:
+          mm.append(graph.intersection(segment['link'][0]))
+        else:
+          mm.append(segment['geometry'][0])
+        if segment['bounds'][1][1]:
+          mm.append(graph.intersection(segment['link'][1]))
+        else:
+          mm.append(segment['geometry'][-1])
+      else:"""
       for point in segment['geometry']:
         mm.append(point)
     if len(mm) > 1:
@@ -146,6 +201,7 @@ def main(argv):
   with open(args.facility, 'r') as f:
     graph = pickle.load(f)
   graph.build_spatial_edge_index()
+  graph.build_spatial_node_index()
 
   with open(args.ifile, 'r') as f:
     preprocessed = pickle.load(f)

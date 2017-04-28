@@ -9,10 +9,11 @@ from priority_queue import PriorityQueue
 from utility import *
 
 class Segment:
-  def __init__(self, coords, offset, width, transition, statemap):
+  def __init__(self, edge, coords, offset, width, transition, statemap):
     self.origin = np.asarray(coords[0])
     self.destination = np.asarray(coords[1])
     self.width = (width / (2.33*2))**2
+    self.edge = edge
 
     v = self.destination - self.origin
     self.length = spatial.distance.euclidean(self.origin, self.destination)
@@ -32,27 +33,34 @@ class Segment:
   def project(self, projection, state, threshold):
     if self.empty():
       return np.inf, None, None
-    cost = state.measurment_update(
-        [self.normal_distance, 0.0], 
-        self.H, 
-        np.diag([self.width, 1.0]))
-    if cost >= threshold:
+    try:
+      if projection != None:
+        projection.time_update(self.F, self.Q)
+
+      cost = state.measurment_update(
+          [self.normal_distance, 0.0], 
+          self.H, 
+          np.diag([self.width, 1.0]))
+      if cost >= threshold:
+        return np.inf, None, None
+      if projection != None:
+        c2 = state.measurment_update(
+            [projection.x[0] + self.direction_distance],
+            self.D[0,:],
+            [projection.P[0,0]+8.0])
+        cost += c2
+      if cost >= threshold:
+        return np.inf, None, None
+      c3 = state.ineq_constraint_update(
+          self.D, 
+          [self.direction_distance, 0.0], 
+          [self.direction_distance + self.length, 50.0])
+      cost += c3
+    except ValueError:
       return np.inf, None, None
-    if projection != None:
-      cost += state.measurment_update(
-          [projection.x[0] + self.direction_distance], 
-          self.D[0,:], 
-          projection.P[0,0] + 6.0)
-    if cost >= threshold:
-      return np.inf, None, None
-    cost += state.ineq_constraint_update(
-        self.D, 
-        [self.direction_distance, 0.0], 
-        [self.direction_distance + self.length, 50.0])
 
     projection = state.transform(self.D)
     projection.x[0] -= self.direction_distance
-    projection.time_update(self.F, self.Q)
 
     return cost, projection, state
 
@@ -60,24 +68,27 @@ class Segment:
     return self.length == 0.0
 
 class Way:
-  def __init__(self, graph, transition, statemap):
+  def __init__(self, graph, transition, statemap, distance_cost_fn):
     self.segments = []
     self.length = 0.0
     self.transition = transition
     self.statemap = statemap
     self.graph = graph
+    self.distance_cost_fn = distance_cost_fn
 
   def copy(self):
-    that = Way(self.graph, self.transition, self.statemap)
+    that = Way(self.graph, self.transition, self.statemap, self.distance_cost_fn)
     that.segments = list(self.segments)
     that.length = self.length
     return that
 
   def append(self, edge):
+    length = 0
     for coords in pairwise(self.graph.way(edge)):
-      segment = Segment(coords, 0.0, 1.0, self.transition, self.statemap)
+      segment = Segment(edge, coords, 0.0, 1.0, self.transition, self.statemap)
       self.segments.append(segment)
-      self.length += segment.length
+      length += segment.length
+    self.length += length
 
   def tip(self):
     return self.segments[-1].destination
@@ -95,15 +106,19 @@ class Way:
     best_cost = np.inf
     best_cstate = None
     best_pstate = None
+    base_cost = 0
     drop = 0
     self.length = 0.0
     if projection != None:
       projection = projection.copy()
 
     for i, segment in enumerate(self.segments):
-      cost, pstate, cstate = segment.project(projection, state.copy(), best_cost)
-      if projection != None:
-        projection.x[0] -= segment.length
+      cost, pstate, cstate = segment.project(projection, state.copy(), best_cost - base_cost)
+      cost += base_cost
+
+      if projection != None and pstate != None:
+        distance = pstate.x[0] - max(projection.x[0], 0)
+        cost += self.distance_cost_fn(distance, segment.edge)
 
       if cost < best_cost:
         best_cost = cost
@@ -115,19 +130,26 @@ class Way:
       else:
         self.length += segment.length
 
+      if projection != None:
+        distance = min(segment.length - projection.x[0], segment.length)
+        base_cost += self.distance_cost_fn(distance, segment.edge)
+        projection.x[0] -= segment.length
+
     if drop != 0:
       self.segments = self.segments[drop:]
 
     return best_cost, best_pstate, best_cstate
 
 class Path:
-  def __init__(self, graph, states, transition, statemap, coords, greedy, hop, index):
-    self.way = Way(graph, transition, statemap)
+  def __init__(self, graph, states, transition, statemap, coords_fn, 
+      distance_cost_fn, intersection_cost_fn, greedy, index):
+    self.way = Way(graph, transition, statemap, distance_cost_fn)
     self.graph = graph
     self.states = states
-    self.coords = coords
+    self.coords = coords_fn
+    self.distance_cost_fn = distance_cost_fn
+    self.intersection_cost_fn = intersection_cost_fn
     self.greedy = greedy
-    self.hop = hop
 
     self.pstate = None # current constrained state on way
     self.cstate = None # current state projected on way
@@ -141,7 +163,9 @@ class Path:
 
   def copy(self):
     that = Path(self.graph, self.states, self.way.transition, 
-                self.way.statemap, self.coords, self.greedy, self.hop,
+                self.way.statemap, self.coords, 
+                self.distance_cost_fn, self.intersection_cost_fn,
+                self.greedy,
                 self.index)
 
     that.way = self.way.copy()
@@ -169,6 +193,7 @@ class Path:
   def advance(self, (cost, pstate, cstate)):
     self.cost += cost
     if self.index + 1 < len(self.states):
+
       self.heuristic -= self.distance(self.coords(self.state()), 
                                       self.coords(self.state(1)))
       self.delta = self.distance(self.coords(cstate), 
@@ -178,6 +203,7 @@ class Path:
     self.cstate = cstate
     self.pstate = pstate
     self.index += 1
+    return self
 
   def jump(self):
     self.cost += self.delta
@@ -185,16 +211,20 @@ class Path:
       distance = spatial.distance.euclidean(self.coords(self.state()), 
                                        self.coords(self.state(1)))
       self.heuristic -= self.greedy * distance
-      self.delta = self.hop * distance
+      self.delta = self.distance_cost_fn(distance, None)
     else:
       self.delta = 0.0
-    self.cstate = self.state()#self.coords(self.state())
+    self.cstate = self.state()
     self.pstate = None
     self.index += 1
     return True
 
   def try_advance(self, (cost, pstate, cstate)):
-    if self.index + 1 >= len(self.states):
+    if cost == np.inf:
+      self.cost += cost
+      return True;
+
+    if self.index + 1 >= len(self.states) or self.exhausted:
       self.advance((cost, pstate, cstate))
       return True
 
@@ -206,18 +236,25 @@ class Path:
       return True
     else:
       self.delta = (self.distance(self.way.tip(), self.coords(self.state())) + 
-                    self.way.saturation(self.pstate))
+                    self.way.saturation(pstate))
       return False
 
   def append(self, edge):
+    assert (self.edge != None or edge != None)
+
+    if self.edge != None and edge != None:
+      (u, v) = self.edge
+      (v, k) = edge
+      self.cost += self.intersection_cost_fn((u, v, k))
+
     if self.edge != None or self.previous != None:
       self.previous = self.current()
     if edge == None:
       self.edge = edge
       self.way.reset()
-      self.delta = (self.hop * 
+      self.delta = self.distance_cost_fn(
         spatial.distance.euclidean(self.coords(self.cstate), 
-                                   self.coords(self.state())))
+                                   self.coords(self.state())), None)
       self.exhausted = True
 
     elif self.edge == None:
@@ -227,9 +264,10 @@ class Path:
 
       cost, pstate, cstate = self.project()
       if self.cstate != None:
-        self.cost += (self.hop * 
+        
+        self.cost += self.distance_cost_fn( 
             spatial.distance.euclidean(self.coords(self.cstate), 
-                                       self.coords(cstate)))
+                                       self.coords(cstate)), None)
       self.advance((cost, pstate, cstate))
       self.exhausted = False
 
@@ -258,17 +296,21 @@ class PathInference:
     - an observation point or 
     - an intersection in the road network, when the current road is exhausted.
   """
-  def __init__(self, graph, statemap, coords, nearby, greedy, hop):
+  def __init__(self, graph, statemap, coords_fn, 
+      distance_cost_fn, intersection_cost_fn, nearby_fn, greedy):
     self.graph = graph
-    self.coords = coords
+    self.coords = coords_fn
+    self.distance_cost_fn = distance_cost_fn
+    self.intersection_cost_fn = intersection_cost_fn
     self.statemap = statemap
+    self.nearby = nearby_fn
     self.greedy = greedy
-    self.hop = hop
-    self.nearby = nearby
 
   def make_path(self, states, transition, index):
     return Path(self.graph, states, transition, 
-        self.statemap, self.coords, self.greedy, self.hop, index)
+        self.statemap, self.coords, 
+        self.distance_cost_fn, self.intersection_cost_fn, 
+        self.greedy, index)
 
   def try_enqueue(self, path):
     if (path.priority() > 300000):
@@ -276,6 +318,8 @@ class PathInference:
     if (np.isfinite(path.cost) and 
         (path.current() not in self.costs or 
          path.cost < self.costs[path.current()])):
+
+      #print ' ', path.current(), path.cost, path.priority()
 
       self.states[path.current()] = path.cstate
 
@@ -290,11 +334,14 @@ class PathInference:
     self.try_enqueue(path.branch(edge))
 
   def visit(self, states, path):
+
     edge, i = path.current()
     if edge in self.visited and i < self.visited[edge]:
       return path
     else:
       self.visited[edge] = i
+
+    #print path.current(), path.cost, path.priority()
 
     self.previous[path.current()] = path.previous
     
@@ -302,7 +349,7 @@ class PathInference:
       return path
 
     if path.edge == None:
-      projections = self.nearby(states[i], 20.0)
+      projections = self.nearby(states[i], 10.0)
       for edge in projections:
         (a, b) = edge.object
         self.try_append(path, (a, b))
@@ -314,6 +361,7 @@ class PathInference:
       for next in self.graph.neighbors(edge[1]):
         self.try_append(path, next)
       self.try_append(path, None)
+      self.try_enqueue(path.next())
     return path
 
   def solve(self, states, transition):
@@ -324,7 +372,7 @@ class PathInference:
     self.queue = PriorityQueue()
     start_time = time.time()
 
-    projections = peek(self.nearby(states[0], 150.0))
+    projections = peek(self.nearby(states[0], 50.0))
     if projections == None:
       return None, self.states
     self.costs[None, 0] = (0.0, 0.0, None)
