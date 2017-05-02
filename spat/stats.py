@@ -1,6 +1,7 @@
 import math, operator
 import scipy.stats, numpy
 
+
 class RunningStats:
   def __init__(self):
     self.totalWeight = 0.0

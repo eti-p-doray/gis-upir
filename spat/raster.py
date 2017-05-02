@@ -1,9 +1,5 @@
-import sys, os, fnmatch, argparse
-import pickle, csv, geojson, json, math, datetime
 import pyproj as proj
-from itertools import izip
 from osgeo import gdalnumeric, gdal
-import shapely.geometry as sg
 
 def world2Pixel(geoMatrix, x, y):
   """
@@ -28,7 +24,7 @@ class RasterImage:
     self.geoTrans = self.srcImage.GetGeoTransform()
     self.srcProj = proj.Proj(init=srcProj)
 
-  def at(self, (x, y), dstProj):
+  def at(self, x, y, dstProj):
     coord = proj.transform(self.srcProj, dstProj, x, y)
     pixel, line = world2Pixel(self.geoTrans, coord[0], coord[1])
     return self.srcArray[line][pixel]
