@@ -2,8 +2,8 @@ import sys, os, fnmatch, argparse, math
 import pickle, geojson, json
 import shapely.geometry as sg
 
-import spat.trajectory.smooth as smooth
-import spat.trajectory.load as load
+from spat.trajectory import smooth
+from spat.trajectory import load
 
 
 def make_geojson(trajectories):
@@ -55,7 +55,7 @@ def main(argv):
     trajectories = load.load_all(files, args.max)
     smoothed_trajectories = list(smooth.smooth_state(trajectories))
 
-    with open(args.ofile, 'w+') as f:
+    with open(args.ofile, 'wb+') as f:
         pickle.dump(smoothed_trajectories, f)
     if args.geojson:
         with open(args.geojson, 'w+') as f:
