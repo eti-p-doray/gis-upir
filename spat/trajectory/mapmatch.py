@@ -130,19 +130,19 @@ class LinkedNode:
     def progress(self):
         return self.edge, self.time
 
-    def project(self, states, geometry: LinkManager):
+    def project(self, states, geometry: LinkManager, greedy_factor):
         state = states[self.time].copy()
         link = geometry.at(self.edge)
         segment = link.at(self.offset)
         cost, constrained_state, projected_state = segment.project(state)
 
         if self.time + 1 < len(states):
-            exhausted = (cost + spatial.distance.euclidean(constrained_state.x[0:2], states[self.time+1].x[0:2]) >
-                         spatial.distance.euclidean(segment.destination, states[self.time].x[0:2]) +
-                         spatial.distance.euclidean(states[self.time].x[0:2], states[self.time + 1].x[0:2]) +
+            exhausted = (cost + greedy_factor * spatial.distance.euclidean(constrained_state.x[0:2], states[self.time+1].x[0:2]) >
+                         greedy_factor * spatial.distance.euclidean(segment.destination, states[self.time].x[0:2]) +
+                         greedy_factor * spatial.distance.euclidean(states[self.time].x[0:2], states[self.time + 1].x[0:2]) +
                          projected_state.ineql_constraint_distance([1.0, 0.0], segment.length))
         else:
-            exhausted = True
+            exhausted = False
 
         return LinkedNode.State(self, exhausted, constrained_state, projected_state), cost
 
@@ -167,7 +167,6 @@ class LinkedNode:
             if self.time + 1 == len(states):
                 yield FinalNode()
                 return
-            #yield LinkedNode(self.edge, self.offset, self.time + 1)
             if not self.exhausted:
                 yield LinkedNode(self.edge, self.offset, self.time + 1)
                 return
@@ -175,8 +174,10 @@ class LinkedNode:
             segment = link.at(self.offset)
             next_projected_state = segment.advance(self.projected_state.copy())
             if self.offset + 1 == link.count():
-                for next_link in graph.adjacent(self.edge[1]):
-                    yield ForwardingNode(self, segment.length, next_projected_state, next_link, 0)
+                for next_edge in graph.adjacent(self.edge[1]):
+                    u, v = next_edge
+                    if (v, u) != self.edge:
+                        yield ForwardingNode(self, segment.length, next_projected_state, next_edge, 0)
                 yield JumpingNode(self)
             else:
                 yield ForwardingNode(self, segment.length, next_projected_state, self.edge, self.offset + 1)
@@ -194,7 +195,7 @@ class LinkedNode:
             #cost = distance_cost_fcn(self.distance_to(other), self.edge)
             #if other.edge() != edge():
             #    cost += 0.0
-            return distance_cost_fcn(self.distance_to(other), self.edge)
+            return self.distance_to(other) * distance_cost_fcn(self.edge)
 
         def heuristic(self, states, distance_cost_fcn, cumulative_distance, greedy_factor):
             if self.time + 1 < len(states):
@@ -227,7 +228,7 @@ class ForwardingNode:
     def progress(self):
         return self.edge, self.anchor.time + 1
 
-    def project(self, states, geometry: LinkManager):
+    def project(self, states, geometry: LinkManager, greedy_factor):
         return ForwardingNode.State(self, geometry.at(self.edge).at(self.offset)), 0.0
 
     class State:
@@ -248,8 +249,10 @@ class ForwardingNode:
             distance = self.distance + self.segment.length
             link = geometry.at(self.edge)
             if self.offset + 1 == link.count():
-                for edge in graph.adjacent(self.edge[1]):
-                    yield ForwardingNode(self.anchor, distance, self.projected_state, edge, 0)
+                for next_edge in graph.adjacent(self.edge[1]):
+                    u, v = next_edge
+                    if (v, u) != self.edge:
+                        yield ForwardingNode(self.anchor, distance, self.projected_state, next_edge, 0)
             else:
                 yield ForwardingNode(self.anchor, distance, self.projected_state, self.edge, self.offset + 1)
 
@@ -260,7 +263,7 @@ class ForwardingNode:
                 return self.segment.length # other is always on a segment adjacent to self
 
         def cost_to(self, other, distance_cost_fcn, intersection_cost_fcn):
-            cost = distance_cost_fcn(self.distance_to(other), self.edge)
+            cost = self.distance_to(other) * distance_cost_fcn(self.edge)
             if isinstance(other, LinkedNode.State):
                 cost += self.segment.distance_cost(self.projected_state, other.constrained_state, self.distance)
             return cost
@@ -284,7 +287,7 @@ class FloatingNode:
     def __str__(self):
         return "FloatingNode: " + str(self.time)
 
-    def project(self, states, geometry: LinkManager):
+    def project(self, states, geometry: LinkManager, greedy_factor):
         return FloatingNode.State(self, states[self.time]), 0.0
 
     def progress(self):
@@ -315,7 +318,7 @@ class FloatingNode:
         def cost_to(self, other, distance_cost_fcn, intersection_cost_fcn):
             if isinstance(other, FinalNode):
                 return 0.0
-            return distance_cost_fcn(self.distance_to(other), None)
+            return self.distance_to(other) * distance_cost_fcn(None)
 
         def heuristic(self, states, distance_cost_fcn, cumulative_distance, greedy_factor):
             return -greedy_factor * cumulative_distance[self.time]
@@ -338,7 +341,7 @@ class JumpingNode:
     def progress(self):
         return None, self.anchor.time + 1
 
-    def project(self, states, geometry: LinkManager):
+    def project(self, states, geometry: LinkManager, greedy_factor):
         return JumpingNode.State(self, states[self.anchor.time+1]), 0.0
 
     class State:
@@ -352,6 +355,9 @@ class JumpingNode:
         def adjacent_nodes(self, states, graph: facility.SpatialGraph, geometry: LinkManager):
             yield FloatingNode(self.anchor.time + 1)
             for edge in find_edges(states[0], graph, 10.0):
+                (u, v) = edge
+                if (u, v) == self.anchor.edge or (v, u) == self.anchor.edge:
+                    continue
                 link = geometry.at(edge)
                 for offset in range(0, link.count()):
                     yield LinkedNode(edge, offset, self.anchor.time + 1)
@@ -361,10 +367,10 @@ class JumpingNode:
             return spatial.distance.euclidean(self.anchor.coordinates(), other.coordinates())
 
         def cost_to(self, other, distance_cost_fcn, intersection_cost_fcn):
-            return distance_cost_fcn(self.distance_to(other), None)
+            return self.distance_to(other) * distance_cost_fcn(None)
 
         def heuristic(self, states, distance_cost_fcn, cumulative_distance, greedy_factor):
-            return (distance_cost_fcn(self.distance_to(self), None) -
+            return (self.distance_to(self) * distance_cost_fcn(None) -
                     greedy_factor * cumulative_distance[self.anchor.time])
 
 
@@ -382,7 +388,7 @@ class InitialNode:
     def progress(self):
         return None, 0
 
-    def project(self, states, geometry: LinkManager):
+    def project(self, states, geometry: LinkManager, greedy_factor):
         return self, 0.0
 
     @staticmethod
@@ -411,7 +417,7 @@ class FinalNode:
     def __str__(self):
         return "FinalNode"
 
-    def project(self, states, geometry: LinkManager):
+    def project(self, states, geometry: LinkManager, greedy_factor):
         return self, 0.0
 
     @staticmethod
@@ -436,7 +442,7 @@ def solve_one(trajectory, graph, distance_cost_fcn, intersection_cost_fcn, greed
         return key.adjacent_nodes(states, graph, link_manager)
 
     def state_projection(key):
-        return key.project(states, link_manager)
+        return key.project(states, link_manager, greedy_factor)
 
     def transition_cost(current_state, next_state):
         return current_state.cost_to(next_state, distance_cost_fcn, intersection_cost_fcn)
@@ -450,10 +456,9 @@ def solve_one(trajectory, graph, distance_cost_fcn, intersection_cost_fcn, greed
     chain = markov.MarkovGraph(adjacent_nodes, state_projection, transition_cost)
 
     start_time = time.time()
-    path = chain.find_best(InitialNode(), FinalNode(), progress, heuristic)
+    path, states = chain.find_best(InitialNode(), FinalNode(), progress, heuristic)
     print('elapsed_time ', time.time() - start_time)
-    print(list(path))
-    return list(path)
+    return list(path), states
 
 
 def solve(trajectories, graph, greedy_factor):
@@ -462,9 +467,9 @@ def solve(trajectories, graph, greedy_factor):
     intersection_weights = numpy.array([
         1.0, 0.0])
 
-    def distance_cost(distance, link):
+    def distance_cost(link):
         if link is None:
-            return 300.0 * distance
+            return 300.0
         predicates = [
             lambda link: True,
             features.link_type_predicate(graph, features.any_cycling_link),
@@ -474,7 +479,7 @@ def solve(trajectories, graph, greedy_factor):
             features.link_type_predicate(graph, features.offroad_link),
             features.link_type_predicate(graph, features.other_road_type),
         ]
-        return distance * numpy.dot(
+        return 0.5 * numpy.dot(
             numpy.array(list(map(lambda pred: pred(link), predicates))),
             distance_weights)
 
@@ -486,7 +491,7 @@ def solve(trajectories, graph, greedy_factor):
             lambda link: True,
             features.intersection_collection(end_of_facility),
         ]
-        return numpy.dot(
+        return 0.5 * numpy.dot(
             numpy.array(map(lambda pred: pred(v), node_predicates)),
             intersection_weights)
 

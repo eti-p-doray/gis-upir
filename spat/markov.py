@@ -23,20 +23,21 @@ class MarkovGraph:
         self.state_projection = state_projection
         self.transition_cost_fcn = transition_cost_fcn
 
-        self.states = {}
-
-    def at(self, key):
-        if key not in self.states:
-            state, state_cost = self.state_projection(key)
-            self.states[key] = (state, state_cost)
-        else:
-            state, state_cost = self.states[key]
-        return state, state_cost
-
     def find_best(self, origin, goal, progress_fcn, heuristic_fcn):
+
+        states = {}
+
+        def at(key):
+            if key not in states:
+                state, state_cost = self.state_projection(key)
+                states[key] = (state, state_cost)
+            else:
+                state, state_cost = states[key]
+            return state, state_cost
+
         queue = PriorityQueue()
 
-        state, cost = self.at(origin)
+        state, cost = at(origin)
         heuristic = heuristic_fcn(origin)
 
         queue.put(origin, cost + heuristic)
@@ -65,7 +66,7 @@ class MarkovGraph:
 
             print("Visit: ", current_key)
 
-            current_state, _ = self.at(current_key)
+            current_state, _ = at(current_key)
             base_cost = cost_table[current_key]
 
             visited[current_key] = True
@@ -80,7 +81,7 @@ class MarkovGraph:
 
                 print("Discover: ", next_key)
 
-                next_state, state_cost = self.at(next_key)
+                next_state, state_cost = at(next_key)
 
                 if state_cost == math.inf:
                     continue
@@ -94,10 +95,7 @@ class MarkovGraph:
                 heuristic = heuristic_fcn(next_state)
 
                 priority = new_cost + heuristic
-                print(priority)
-                #if next_key in cost_table:
-                #    queue.put(entry_table[next_key], priority)
-                #else:
+
                 queue.put(next_key, priority)
                 cost_table[next_key] = new_cost
                 backtrack_chain[next_key] = current_key
@@ -111,4 +109,4 @@ class MarkovGraph:
                 yield node
                 node = backtrack_chain[node]
 
-        return reversed(list(backtrack()))
+        return reversed(list(backtrack())), states
