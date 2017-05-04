@@ -118,7 +118,7 @@ class Way:
 
       if projection != None and pstate != None:
         distance = pstate.x[0] - max(projection.x[0], 0)
-        cost += self.distance_cost_fn(distance, segment.edge)
+        cost += distance * self.distance_cost_fn(segment.edge)
 
       if cost < best_cost:
         best_cost = cost
@@ -132,7 +132,6 @@ class Way:
 
       if projection != None:
         distance = min(segment.length - projection.x[0], segment.length)
-        base_cost += self.distance_cost_fn(distance, segment.edge)
         projection.x[0] -= segment.length
 
     if drop != 0:
@@ -211,7 +210,7 @@ class Path:
       distance = spatial.distance.euclidean(self.coords(self.state()), 
                                        self.coords(self.state(1)))
       self.heuristic -= self.greedy * distance
-      self.delta = self.distance_cost_fn(distance, None)
+      self.delta = distance * self.distance_cost_fn(None)
     else:
       self.delta = 0.0
     self.cstate = self.state()
@@ -252,9 +251,9 @@ class Path:
     if edge == None:
       self.edge = edge
       self.way.reset()
-      self.delta = self.distance_cost_fn(
-        spatial.distance.euclidean(self.coords(self.cstate), 
-                                   self.coords(self.state())), None)
+      self.delta = (spatial.distance.euclidean(self.coords(self.cstate), 
+                                               self.coords(self.state())) * 
+                    self.distance_cost_fn(None))
       self.exhausted = True
 
     elif self.edge == None:
@@ -265,9 +264,9 @@ class Path:
       cost, pstate, cstate = self.project()
       if self.cstate != None:
         
-        self.cost += self.distance_cost_fn( 
-            spatial.distance.euclidean(self.coords(self.cstate), 
-                                       self.coords(cstate)), None)
+        self.cost += (spatial.distance.euclidean(self.coords(self.cstate), 
+                                                 self.coords(cstate)) * 
+                      self.distance_cost_fn(None))
       self.advance((cost, pstate, cstate))
       self.exhausted = False
 

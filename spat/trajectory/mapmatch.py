@@ -105,9 +105,9 @@ def map_match(trajectories, graph, heuristic_factor):
   end_of_facility = match_intersections(
     load_discontinuity("data/discontinuity/end_of_facility"), graph)
 
-  def distance_cost_fn(distance, link):
+  def distance_cost_fn(link):
     if link == None:
-      return 300.0 * distance
+      return 300.0
     predicates = [
       lambda link: True,
       link_type_predicate(graph, any_cycling_link),
@@ -117,7 +117,7 @@ def map_match(trajectories, graph, heuristic_factor):
       link_type_predicate(graph, offroad_link),
       link_type_predicate(graph, other_road_type),
     ]
-    return np.dot(
+    return 0.3 * np.dot(
       np.array(map(lambda pred:pred(link), predicates)), 
       distance_costs)
 
@@ -126,7 +126,7 @@ def map_match(trajectories, graph, heuristic_factor):
       lambda link: True,
       intersection_collection(end_of_facility),
     ]
-    return np.dot(
+    return 0.3 * np.dot(
       np.array(map(lambda pred:pred(v), node_predicates)), 
       intersection_costs)
 
@@ -190,7 +190,7 @@ def main(argv):
     help='output pickle file containing an array of segments');
   parser.add_argument('--geojson',
     help='output geojson file to export constrained geometry');
-  parser.add_argument('--factor', default = 10.0, type=float,
+  parser.add_argument('--factor', default = 20.0, type=float,
     help='heuristic factor. Higher is more greedy');
 
   args = parser.parse_args()
