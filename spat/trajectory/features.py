@@ -29,8 +29,8 @@ class RegionPartition:
 def extract_length(trajectory, predicate):
     length = 0
     for segment in trajectory['segment']:
-        if (predicate(segment['link'])):
-            if segment['link'] == None:
+        if predicate(segment['link']):
+            if segment['link'] is None:
                 length += sg.LineString(segment['geometry']).length
             else:
                 length += segment['bounds'][1][1] - segment['bounds'][0][1]
@@ -56,7 +56,7 @@ def match_intersections(points, graph):
     intersection_index = {}
     for i, p in enumerate(points):
         geom = p['geometry']
-        nearby = graph.search_nodes(utility.bb_bounds(geom.x, geom.y, 2, 2));
+        nearby = graph.search_nodes(utility.bb_bounds(geom.x, geom.y, 2, 2))
 
         min_distance = math.inf
         best_node = None
@@ -75,7 +75,7 @@ def extract_intersection(trajectory, predicate):
     count = 0
 
     for segment in trajectory['segment']:
-        if (segment['link'] != None and segment['bounds'][1][0] == True):
+        if segment['link'] is not None and segment['bounds'][1][0]:
             if predicate(segment['link'][1]):
                 count += 1
     return count
@@ -85,8 +85,8 @@ def extract_turn(trajectory, graph, predicate):
     count = 0
 
     for segment0, segment1 in utility.pairwise(trajectory['segment']):
-        if (segment0['link'] != None and segment0['bounds'][1][0] == True and
-                    segment1['link'] != None and segment1['bounds'][0][0] == True):
+        if (segment0['link'] is not None and segment0['bounds'][1][0] and
+            segment1['link'] is not None and segment1['bounds'][0][0]):
 
             angle = graph.turn_angle((segment0['link'][0],
                                       segment0['link'][1],
@@ -98,7 +98,7 @@ def extract_turn(trajectory, graph, predicate):
 
 def extract_nodes(trajectory, graph):
     for segment in trajectory['segment']:
-        if (segment['link'] != None and segment['bounds'][0][0] == True):
+        if segment['link'] is not None and segment['bounds'][0][0]:
             coord = graph.node_geometry(segment['link'][0])
             yield (coord.x, coord.y)
         else:
@@ -121,7 +121,7 @@ def link_type_predicate(graph, predicate):
     def fn(link):
         if link is None:
             return False
-        return predicate(graph.edge(link)['type'])
+        return predicate(graph.edge(*link)['type'])
     return fn
 
 

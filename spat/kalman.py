@@ -229,6 +229,8 @@ class KalmanFilter:
 
     def ineq_constraint_distance(self, omega, a, b):
         vv = np.dot(np.dot(omega, np.asarray(self.P)), omega)
+        if vv < 0:
+            return np.inf
         v = math.sqrt(vv)
         c = (a - np.dot(omega, self.x)) / v
         d = (b - np.dot(omega, self.x)) / v
@@ -237,12 +239,16 @@ class KalmanFilter:
 
     def ineql_constraint_distance(self, omega, a):
         vv = np.dot(np.dot(omega, np.asarray(self.P)), omega)
+        if vv < 0:
+            return np.inf
         c = (a - np.dot(omega, self.x)) / math.sqrt(vv)
         l, u, var = left_truncate_gaussian(c)
         return -l
 
     def ineqr_constraint_distance(self, omega, b):
         vv = np.dot(np.dot(omega, np.asarray(self.P)), omega)
+        if vv < 0:
+            return np.inf
         d = (b - np.dot(omega, self.x)) / math.sqrt(vv)
         l, u, var = right_truncate_gaussian(d)
         return -l

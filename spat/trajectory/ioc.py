@@ -3,7 +3,7 @@ import pickle, geojson, json, math
 import numpy as np
 import itertools
 
-from spat.trajectory.features import *
+from spat.trajectory.features_main import *
 from spat.priority_queue import PriorityQueue
 from spat.spatial_graph import SpatialGraph
 
@@ -267,7 +267,7 @@ def main(argv):
 
   weights = np.ones(18)
 
-  weights = inverse_optimal_control(data, 16, gradient_fn, weights, 
+  weights = inverse_optimal_control(data, 1, gradient_fn, weights, 
     0.01, 0.1, 200)
 
 

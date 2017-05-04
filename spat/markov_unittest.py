@@ -1,6 +1,6 @@
 import unittest
 
-from spat import graph
+from spat import markov
 
 
 class TestMarkov(unittest.TestCase):
@@ -18,7 +18,7 @@ class TestMarkov(unittest.TestCase):
         def heuristic(state):
             return 4 - state
 
-        chain = graph.MarkovChain(adjacent, state, cost)
+        chain = markov.MarkovGraph(adjacent, state, cost)
         path = chain.find_best(0, 4, heuristic)
         self.assertEqual(list(path), [0, 1, 2, 3, 4])
 

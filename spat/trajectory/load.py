@@ -27,12 +27,13 @@ def load_csv(data):
         if current_id != previous_id:
             if observations:
                 print(previous_id)
-                yield {
-                    'observations': observations,
-                    'accuracy': accuracy,
-                    'id': previous_id,
-                    'link': link
-                }
+                if previous_id != '8012':
+                    yield {
+                        'observations': observations,
+                        'accuracy': accuracy,
+                        'id': previous_id,
+                        'link': link
+                    }
                 observations = []
                 accuracy = []
                 link = []
@@ -40,8 +41,8 @@ def load_csv(data):
             previous_time = None
 
         current_time = datetime.datetime.strptime(row[time_idx], '%Y-%m-%d %H:%M:%S')
-        while (previous_time != None and
-                           previous_time + datetime.timedelta(seconds=1) < current_time):
+        while (previous_time is not None and
+                previous_time + datetime.timedelta(seconds=1) < current_time):
             observations.append(None)
             accuracy.append(None)
             link.append(None)

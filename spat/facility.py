@@ -19,7 +19,7 @@ class SpatialGraph:
     def has_edge(self, u, v):
         return self.graph.has_edge(u, v)
 
-    def neighbors(self, u):
+    def adjacent(self, u):
         for v in self.graph.neighbors(u):
             yield (u, v)
 
