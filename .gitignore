@@ -38,3 +38,4 @@ data/*
 
 # Python
 *.pyc
+**/.idea/*
