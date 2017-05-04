@@ -1,0 +1,158 @@
+\documentclass{article}
+
+\usepackage{glossaries}
+
+\input{acronyms.tex}
+
+\begin{document}
+
+%------------------
+%-- Paper title
+\title{Analysing Path of Cyclists using features}
+\author{Etienne Pierre-Doray and Nicolas Saunier%
+\\
+{\normalsize [e-mail: etienne.pierre-doray@polymtl.ca,  nicolas.saunier@polymtl.ca ]}%
+}
+%-----------------
+
+\maketitle
+\thispagestyle{empty}
+
+\begin{abstract}
+Lorem Ipsum dolor
+\end{abstract}
+
+\section{Introduction}\label{Sec:Intro}
+
+We are given a set of \gls{gps} data representing paths taken by 
+cyclists. This dataset is obtained from Mon RésoVélo, a free mobile application
+gathering real-time data on cyclist about their speed and position. This information is meant to provide insight to Montreal City specialists, to help them improve cycling facilities and promote cycling traffic.
+
+We present in this document our approach to analyse the dataset with the goal of
+providing usefull and understandable information about cyclist preferences and priorities. This approach treats paths as demonstration from expert actors, similar to the \gls{ioc} [ref]. It is focused on extracting features from those demonstration 
+and learning the relative influence of those features on cyclists decisions.  
+
+As a result, this approach allows us to evaluate the significance of extracted features, evaluate the likelihood that a given path will be chosen, as well as predict a path that is most likely going to be chosen given a new origin-destination pair.
+
+
+\section{Loading data from csv files}\label{Sec:Load}
+
+\section{Model-Based Optimal Smoothing}\label{Sec:Smoothing}
+
+\section{Path Inference}\label{Sec:Mapmatch}
+
+\subsection{Markov Chain}\label{Sec:Markov}
+
+\subsection{Inference by Graph Traversal}\label{Sec:Graph}
+
+\subsection{Projection of Equality Constraints}\label{Sec:EqConstraint}
+
+\subsection{Inequality Constraint by \gls{pdf} truncation}\label{Sec:IneqConstraint}
+
+Let $e_1 = \begin{bmatrix} 1 & 0 & \ldots & 0\end{bmatrix}^T$.
+Let $\phi_i(k)$ be a constraint vector.
+Let $\tilde{\Sigma}_i(k)$ be a covariant matrix, which has orthogonal diagonalization
+$$
+\begin{align}
+  T_i W_i T_i^T & = \tilde{\Sigma}_i(k). \tag{7}
+\end{align}
+$$
+$S_i$ is an orthogonal matrix chosen to satisfy:
+$$
+\begin{align}
+  S_i W_i^{1/2} T_i^T \phi_i(k) & =
+    \begin{bmatrix} (\phi_i^T(k)\tilde{\Sigma}_i(k)\phi_i(k))^{1/2} & 
+        0 &  \cdots &  0\end{bmatrix}^T \tag{8} \\
+  & = (\phi_i^T(k)\tilde{\Sigma}_i(k)\phi_i(k))^{1/2}) \; e_1.
+\end{align}
+$$
+And from the paper&#39;s derivation:
+$$
+\begin{align}
+  \tilde{C}_{i+1}(k) & = \mathrm{diag}(\sigma_i^2,1,\ldots,1), \tag{16} \\
+  \tilde{\Sigma}_{i+1}(k) & =T_i W_i^{1/2} S_i^T \tilde{C}_{i+1}(k)
+      S_i W_i^{1/2} T_i^T. \tag{17}
+\end{align}
+$$
+Subsitute (16) into (17):
+$$
+\begin{align}
+  \tilde{\Sigma}_{i+1}(k) & =T_i W_i^{1/2} S_i^T
+      \times \mathrm{diag}(\sigma_i^2,1,\ldots,1) \times
+      S_i W_i^{1/2} T_i^T \\
+  & = T_i W_i^{1/2} S_i^T
+      \times \left[
+        I + (\sigma_i^2 - 1) e_1 e_1^T
+      \right]\times
+      S_i W_i^{1/2} T_i^T \\
+  & = \left( T_i W_i^{1/2} S_i^T S_i W_i^{1/2} T_i^T \right) +
+      \left( (\sigma_i^2 - 1) T_i W_i^{1/2} S_i^T e_1 e_1^T S_i W_i^{1/2} T_i^T \right).
+\end{align}
+$$
+The first term is:
+$$
+\begin{align}
+   T_i W_i^{1/2} S_i^T S_i W_i^{1/2} T_i^T
+      = T_i W_i T_i^T = \tilde{\Sigma}_i(k).
+\end{align}
+$$
+For the second term we want $e_1^T S_i W_i^{1/2} T_i^T$.
+To get this, we first solve for $e_1^T S_i$ by left-multiplying (8) by $S_i^T$,
+take transpose, and divide by constant:
+$$
+\begin{align}
+  W_i^{1/2} T_i^T \phi_i(k) & =
+    (\phi_i^T(k)\tilde{\Sigma}_i(k)\phi_i(k))^{1/2}) \; S_i^T e_1, \\
+  \therefore e_1^T S_i & =
+    \frac{\phi_i^T(k) T_i W_i^{1/2}}
+    {(\phi_i^T(k) \tilde{\Sigma}_i(k) \phi_i(k))^{1/2}}.
+\end{align}
+$$
+Next, right-multiply by $W_i^{1/2} T_i^T$:
+$$
+\begin{align}
+  e_1^T S_i W_i^{1/2} T_i^T & =
+    \frac{\phi_i^T(k) T_i W_i^{1/2} W_i^{1/2} T_i^T}
+    {(\phi_i^T(k) \tilde{\Sigma}_i(k) \phi_i(k))^{1/2}}
+  = \frac{\phi_i^T(k) \tilde{\Sigma}_i(k)}
+    {(\phi_i^T(k) \tilde{\Sigma}_i(k) \phi_i(k))^{1/2}}, \\
+  \therefore T_i W_i^{1/2} S_i^T e_1 e_1^T S_i W_i^{1/2} T_i^T & =
+    \frac{\tilde{\Sigma}_i(k) \phi_i(k) \phi_i^T(k) \tilde{\Sigma}_i(k)}
+    {\phi_i^T(k) \tilde{\Sigma}_i(k) \phi_i(k)}.
+\end{align}
+$$
+Finally, combine with first term allows us to rewrite (17) without $S_i$, $T_i$ and $W_i$:
+$$
+\begin{align}
+\tilde{\Sigma}_{i+1}(k) &  =
+  \tilde{\Sigma}_i(k) + (1 - \sigma_i^2)
+    \frac{\tilde{\Sigma}_i(k) \phi_i(k) \phi_i^T(k) \tilde{\Sigma}_i(k)}
+    {\phi_i^T(k) \tilde{\Sigma}_i(k) \phi_i(k)}.
+\end{align}
+$$
+
+\section{Feature Extraction}\label{Sec:Features}
+
+All features must be additive.
+
+Once we have the trajectories matched onto the facility, most features can be
+extracted trivially. 
+Features extraction is best represented as a functionnal 
+mapping from segments to values representing.
+
+\section{Inverse Reinforcment Learning}\label{Sec:IRL}
+
+\subsection{Feature Expectation}\label{Sec:IRL}
+
+\subsection{Stochastic Gradient Descent}\label{Sec:SGD}
+
+\subsection{Testing Feature Significance}\label{Sec:SGD}
+
+\section{Empirical Results}\label{Sec:Result}
+
+\section{Conclusion}\label{Sec:Conclu}
+
+\bibliography{references}{}
+\bibliographystyle{ieeetr}
+
+\end{document}
