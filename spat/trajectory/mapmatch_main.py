@@ -7,11 +7,11 @@ from spat.trajectory import mapmatch
 
 def make_geojson(trajectories, graph):
     features = []
-    for path, states in trajectories:
+    for path in trajectories:
         mm = []
-        for node in path:
+        for key, node in path:
             if isinstance(node, mapmatch.LinkedNode) or isinstance(node, mapmatch.FloatingNode):
-                mm.append(states[node][0].coordinates())
+                mm.append(node.coordinates())
         if len(mm) > 1:
             features.append(geojson.Feature(
                 geometry = sg.mapping(sg.LineString(mm)),
@@ -39,7 +39,7 @@ def main(argv):
                         help='output pickle file containing an array of segments')
     parser.add_argument('--geojson',
                         help='output geojson file to export constrained geometry')
-    parser.add_argument('--factor', default=150.0, type=float,
+    parser.add_argument('--factor', default=15.0, type=float,
                         help='heuristic factor. Higher is more greedy')
 
     args = parser.parse_args()

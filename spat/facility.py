@@ -43,6 +43,9 @@ class SpatialGraph:
     def node(self, u):
         return self.graph.node[u]
 
+    def edge_geometry_size(self, u, v):
+        return len(self.graph[u][v]['geometry']) + 1
+
     def edge_geometry(self, u, v):
         yield self.graph.node[u]['geometry']
         if not self.direction(u, v):
@@ -133,10 +136,10 @@ class SpatialGraph:
                     if k == ignore:
                         continue
                     distance = point.distance(self.graph.node[k]['geometry'])
-                    if (distance <= min_distance):
+                    if distance <= min_distance:
                         min_distance = distance
                         best = k
-                if best == None:
+                if best is None:
                     best = self.graph.order()
                     self.graph.add_node(best, geometry = point)
                     self.spatial_node_idx.insert(best, point.bounds)

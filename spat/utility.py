@@ -68,3 +68,6 @@ def bb_bounds(x, y, width, height):
 
 def bb_buffer(point, width):
     return point.x-width, point.y-width, point.x+width, point.y+width
+
+def intersect(a, b):
+    return a[0] < b[2] and a[2] > b[0]  and a[1] < b[3] and a[3] > b[1]

@@ -18,95 +18,95 @@ class MarkovGraph:
     generator of adjacent hashable state keys, that takes the current state value as argument.
   
     """
-    def __init__(self, transition_generator, state_projection, transition_cost_fcn):
+    def __init__(self, transition_generator, state_projection, state_cost_fcn, transition_cost_fcn, handicap_fcn):
         self.transition_generator = transition_generator
         self.state_projection = state_projection
+        self.state_cost_fcn = state_cost_fcn
         self.transition_cost_fcn = transition_cost_fcn
+        self.handicap_fcn = handicap_fcn
 
     def find_best(self, origin, goal, progress_fcn, heuristic_fcn):
 
-        states = {}
-
-        def at(key):
-            if key not in states:
-                state, state_cost = self.state_projection(key)
-                states[key] = (state, state_cost)
-            else:
-                state, state_cost = states[key]
-            return state, state_cost
-
         queue = PriorityQueue()
 
-        state, cost = at(origin)
-        heuristic = heuristic_fcn(origin)
+        origin_node = self.state_projection(origin)
 
-        queue.put(origin, cost + heuristic)
+        cost = self.state_cost_fcn(origin_node)
+        handicap_cost = self.handicap_fcn(origin_node)
+        heuristic = heuristic_fcn(origin_node)
+
+        queue.put((origin_node, origin), cost + heuristic)
         cost_table = {
-            origin: cost
+            origin: (cost, cost + handicap_cost)
         }
         backtrack_chain = {
-            origin: None
+            origin: (None, None)
         }
         visited = {}
         progress_table = {}
 
         current_key = None
         while not queue.empty():
-            current_key = queue.get()
+            current_node, current_key = queue.get()
             if current_key == goal:
                 break
 
-            if current_key in progress_table:
+            if current_key in visited:
                 continue
 
-            i, j = progress_fcn(current_key)
-
-            if i in progress_table and j < progress_table[i]:
+            step, progress = progress_fcn(current_key)
+            if step in progress_table and progress <= progress_table[step]:
                 continue
 
-            print("Visit: ", current_key)
+            print("Visit: ", current_node)
 
-            current_state, _ = at(current_key)
-            base_cost = cost_table[current_key]
+            base_cost = cost_table[current_key][0]
 
             visited[current_key] = True
-            progress_table[j] = i
+            progress_table[step] = progress
 
-            for next_key in self.transition_generator(current_state):
+            for next_key in self.transition_generator(current_node):
                 if next_key in visited:
                     continue
-                i, j = progress_fcn(current_key)
-                if i in progress_table and j < progress_table[i]:
+
+                step, progress = progress_fcn(next_key)
+                if step in progress_table and progress <= progress_table[step]:
                     continue
 
-                print("Discover: ", next_key)
+                next_node = self.state_projection(next_key)
 
-                next_state, state_cost = at(next_key)
+                print("Discover: ", next_node)
+
+                state_cost = self.state_cost_fcn(next_node)
 
                 if state_cost == math.inf:
                     continue
 
-                transition_cost = self.transition_cost_fcn(current_state, next_state)
+                transition_cost = self.transition_cost_fcn(current_node, next_node)
+                handicap_cost = self.handicap_fcn(next_node)
                 new_cost = base_cost + state_cost + transition_cost
 
-                if new_cost == math.inf or next_key in cost_table and new_cost >= cost_table[next_key]:
+                if (new_cost == math.inf or
+                    (next_node in cost_table and new_cost + handicap_cost >= cost_table[next_key][1])):
                     continue
 
-                heuristic = heuristic_fcn(next_state)
+                heuristic = heuristic_fcn(next_node)
+                priority = new_cost + handicap_cost + heuristic
 
-                priority = new_cost + heuristic
+                print(priority)
 
-                queue.put(next_key, priority)
-                cost_table[next_key] = new_cost
-                backtrack_chain[next_key] = current_key
+                queue.put((next_node, next_key), priority)
+                cost_table[next_key] = (new_cost, new_cost + handicap_cost)
+                backtrack_chain[next_key] = (current_key, current_node)
 
         if current_key != goal:
             return None
 
         def backtrack():
-            node = current_key
-            while node is not None:
-                yield node
-                node = backtrack_chain[node]
+            key = current_key
+            node = current_node
+            while key is not None:
+                yield key, node
+                key, node = backtrack_chain[key]
 
-        return reversed(list(backtrack())), states
+        return reversed(list(backtrack()))
