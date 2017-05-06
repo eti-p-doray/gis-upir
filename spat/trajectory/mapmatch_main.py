@@ -1,4 +1,4 @@
-import sys, argparse
+import sys, argparse, logging
 import pickle, json, geojson
 import shapely.geometry as sg
 
@@ -7,11 +7,12 @@ from spat.trajectory import mapmatch
 
 def make_geojson(trajectories, graph):
     features = []
-    for path in trajectories:
+    for trajectory in trajectories:
+        segments = trajectory['segment']
         mm = []
-        for key, node in path:
-            if isinstance(node, mapmatch.LinkedNode) or isinstance(node, mapmatch.FloatingNode):
-                mm.append(node.coordinates())
+        for segment in segments:
+            for point in segment.geometry:
+                mm.append(point)
         if len(mm) > 1:
             features.append(geojson.Feature(
                 geometry = sg.mapping(sg.LineString(mm)),
@@ -46,6 +47,8 @@ def main(argv):
     print('input file:', args.ifile)
     print('facility:', args.facility)
     print('output file:', args.ofile)
+
+    logging.basicConfig(level=logging.DEBUG)
 
     with open(args.facility, 'rb') as f:
         graph = pickle.load(f)

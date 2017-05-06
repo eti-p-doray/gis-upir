@@ -1,11 +1,11 @@
-import time
+import time, logging
 import math
 import numpy
 from scipy import linalg, spatial
 import shapely.geometry as sg
 
 from spat import markov, utility, facility, kalman
-from spat.trajectory import features
+from spat.trajectory import features, model
 
 
 def ellipse_bounds(state, quantile):
@@ -13,6 +13,10 @@ def ellipse_bounds(state, quantile):
     height = math.sqrt(ell[0][0] ** 2 + ell[1][0] ** 2)
     width = math.sqrt(ell[0][1] ** 2 + ell[1][1] ** 2)
     return utility.bb_bounds(state.x[0], state.x[1], width, height)
+
+
+def projection_distance_cost(state1, state2, travelled_distance):
+    return state1.measurment_distance(state2.x[0] + travelled_distance, [1.0, 0.0], [state2.P[0, 0] + 2.0])
 
 
 class Segment:
@@ -70,9 +74,6 @@ class Segment:
         projected_state.time_update(self.F, self.Q)
         return projected_state
 
-    def distance_cost(self, state1, state2, travelled_distance):
-        return state1.measurment_distance(state2.x[0] + travelled_distance, [1.0, 0.0], [state2.P[0, 0] + 2.0])
-
     def empty(self):
         return self.length == 0.0
 
@@ -121,10 +122,10 @@ class ProjectionManager:
         for i, state in enumerate(states):
             self.edge_table[i] = {}
 
-    def project_state(self, i):
+    def project_state(self, i, quantile = 5.0):
         if i not in self.state_table:
 
-            bounds = ellipse_bounds(self.states[i], 5.0)
+            bounds = ellipse_bounds(self.states[i], quantile)
             projections = []
             projection_costs = []
 
@@ -220,6 +221,9 @@ class LinkedNode:
     def coordinates(self):
         return self.constrained_state.x[0:2]
 
+    def projection(self):
+        return self.projected_state.x[0] + self.segment.distance
+
     def adjacent_nodes(self, states, projections: ProjectionManager, graph: facility.SpatialGraph, geometry: LinkManager):
         if self.idx + 1 == len(states):
             yield FinalNode()
@@ -239,8 +243,7 @@ class LinkedNode:
     def distance_to(self, other):
         if isinstance(other, LinkedNode):
             assert self.edge == other.edge
-            return abs((other.segment.distance + other.projected_state.x[0]) -
-                    (self.segment.distance + self.projected_state.x[0]))  # difference on same edge
+            return abs(other.projection() - self.projection())  # difference on same edge
         elif isinstance(other, ForwardingNode):
             return self.link.length - (self.segment.distance + self.projected_state.x[0])  # remaining length of edge
         return 0.0
@@ -250,8 +253,8 @@ class LinkedNode:
             return 0.0
         cost = self.distance_to(other) * distance_cost_fcn(self.edge)
         if isinstance(other, LinkedNode):
-            cost += other.segment.distance_cost(self.next_projected_state, other.projected_state,
-                                               other.segment.distance - self.segment.distance)
+            cost += projection_distance_cost(self.next_projected_state, other.projected_state,
+                                             other.segment.distance - self.segment.distance)
         return cost
 
     def handicap(self, distance_cost_fcn):
@@ -316,7 +319,6 @@ class ForwardingNode:
             u, v = next_edge
             if (v, u) != self.edge:
                 yield ForwardingNode.Key(self.anchor, distance, next_edge, self.projected_state)
-                #yield ForwardingNode.Key(self.anchor, distance, next_edge, geometry.at(next_edge), self.projected_state)
 
     def distance_to(self, other):
         if isinstance(other, LinkedNode):
@@ -330,7 +332,7 @@ class ForwardingNode:
         if isinstance(other, LinkedNode):
             assert other.edge == self.edge
             segment = other.segment
-            cost += segment.distance_cost(self.projected_state, other.projected_state, self.distance + segment.distance)
+            cost += projection_distance_cost(self.projected_state, other.projected_state, self.distance + segment.distance)
         return cost
 
     def handicap(self, distance_cost_fcn):
@@ -475,7 +477,7 @@ class InitialNode:
 
     @staticmethod
     def adjacent_nodes(states, projections: ProjectionManager, graph: facility.SpatialGraph, geometry: LinkManager):
-        for edge, offsets in projections.project_state(0).items():
+        for edge, offsets in projections.project_state(0, 50.0).items():
             link = geometry.at(edge)
             for offset in offsets:
                 yield LinkedNode.Key(edge, offset, 0)
@@ -519,8 +521,62 @@ class FinalNode:
         return -greedy_factor * cumulative_distance[-1]
 
 
+def format_path(path):
+    geometry = []
+    current_edge = None
+    begin_bound = model.MatchedSegment.Bound(None, False, 0)
+    previous_node = None
+
+    for key, node in path:
+        if current_edge is None and isinstance(node, LinkedNode):
+            if geometry:
+                assert previous_node is not None
+                end_bound = model.MatchedSegment.Bound(None, False, node.idx)
+                geometry.append(node.coordinates())
+                yield model.MatchedSegment(None, geometry, begin_bound, end_bound)
+
+            current_edge = node.edge
+            begin_bound = model.MatchedSegment.Bound(node.projection(), False, node.idx)
+            geometry = []
+
+        if isinstance(node, ForwardingNode):
+            end_bound = model.MatchedSegment.Bound(node.anchor.link.length, True, node.anchor.idx + 1)
+
+            assert begin_bound is not None and current_edge is not None
+            geometry.append(node.coordinates())
+            yield model.MatchedSegment(current_edge, geometry, begin_bound, end_bound)
+
+            current_edge = node.edge
+            begin_bound = model.MatchedSegment.Bound(0.0, True, node.anchor.idx + 1)
+            geometry = [node.coordinates()]
+
+        if isinstance(node, JumpingNode):
+            end_bound = model.MatchedSegment.Bound(node.anchor.projection(), False, node.anchor.idx + 1)
+            yield model.MatchedSegment(current_edge, geometry, begin_bound, end_bound)
+
+            current_edge = None
+            begin_bound = model.MatchedSegment.Bound(None, False, node.anchor.idx + 1)
+            geometry = [node.anchor.coordinates()]
+
+        if isinstance(node, FinalNode):
+            if current_edge is None:
+                assert isinstance(previous_node, FloatingNode)
+                end_bound = model.MatchedSegment.Bound(None, False, previous_node.idx + 1)
+                if geometry:
+                    yield model.MatchedSegment(None, geometry, begin_bound, end_bound)
+            else:
+                assert isinstance(previous_node, LinkedNode)
+                end_bound = model.MatchedSegment.Bound(previous_node.projection(), False, previous_node.idx + 1)
+                yield model.MatchedSegment(current_edge, geometry, begin_bound, end_bound)
+
+        if isinstance(node, LinkedNode) or isinstance(node, FloatingNode):
+            geometry.append(node.coordinates())
+
+        previous_node = node
+
+
 def solve_one(trajectory, graph, distance_cost_fcn, intersection_cost_fcn, greedy_factor):
-    print(trajectory['id'])
+    logging.info("solving mapmatch for %s", trajectory['id'])
 
     states = trajectory['state']
     link_manager = LinkManager(graph, trajectory['transition'])
@@ -557,10 +613,10 @@ def solve_one(trajectory, graph, distance_cost_fcn, intersection_cost_fcn, greed
 
     chain = markov.MarkovGraph(adjacent_nodes, project, state_cost, transition_cost, handicap)
 
-    start_idx = time.time()
-    path = chain.find_best(InitialNode(), FinalNode(), progress, heuristic)
-    print('elapsed_time ', time.time() - start_idx)
-    return list(path)
+    start_time = time.time()
+    path = chain.find_best(InitialNode(), FinalNode(), progress, heuristic, 300000.0)
+    logging.debug("elapsed_time: %.4f", time.time() - start_time)
+    return path
 
 
 def solve(trajectories, graph, greedy_factor):
@@ -598,4 +654,12 @@ def solve(trajectories, graph, greedy_factor):
             intersection_weights)
 
     for trajectory in trajectories:
-        yield solve_one(trajectory, graph, distance_cost, intersection_cost, greedy_factor)
+        path = solve_one(trajectory, graph, distance_cost, intersection_cost, greedy_factor)
+        if path is None:
+            logging.warning("trashing %s due to incomplete mapmatch", trajectory['id'])
+            continue
+
+        yield {
+            'segment': list(format_path(path)),
+            'id': trajectory['id'],
+            'count': len(trajectory['state'])}
