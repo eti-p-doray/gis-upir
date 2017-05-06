@@ -1,4 +1,5 @@
 import math
+import logging
 
 #from fibonacci_heap_mod import Fibonacci_heap
 from spat.priority_queue import PriorityQueue
@@ -25,7 +26,7 @@ class MarkovGraph:
         self.transition_cost_fcn = transition_cost_fcn
         self.handicap_fcn = handicap_fcn
 
-    def find_best(self, origin, goal, progress_fcn, heuristic_fcn):
+    def find_best(self, origin, goal, progress_fcn, heuristic_fcn, priority_threshold):
 
         queue = PriorityQueue()
 
@@ -55,10 +56,10 @@ class MarkovGraph:
                 continue
 
             step, progress = progress_fcn(current_key)
-            if step in progress_table and progress <= progress_table[step]:
+            if step in progress_table and progress < progress_table[step]:
                 continue
 
-            print("Visit: ", current_node)
+            logging.debug("Visit: %s", str(current_node))
 
             base_cost = cost_table[current_key][0]
 
@@ -70,12 +71,12 @@ class MarkovGraph:
                     continue
 
                 step, progress = progress_fcn(next_key)
-                if step in progress_table and progress <= progress_table[step]:
+                if step in progress_table and progress < progress_table[step]:
                     continue
 
                 next_node = self.state_projection(next_key)
 
-                print("Discover: ", next_node)
+                logging.debug("Discover: %s", str(next_node))
 
                 state_cost = self.state_cost_fcn(next_node)
 
@@ -92,8 +93,10 @@ class MarkovGraph:
 
                 heuristic = heuristic_fcn(next_node)
                 priority = new_cost + handicap_cost + heuristic
+                if priority > priority_threshold:
+                    continue
 
-                print(priority)
+                logging.debug("priority, cost: %.4f, %.4f", priority, new_cost + handicap_cost)
 
                 queue.put((next_node, next_key), priority)
                 cost_table[next_key] = (new_cost, new_cost + handicap_cost)

@@ -1,5 +1,6 @@
-import sys, os, fnmatch, argparse, math
+import sys, os, fnmatch, argparse, logging
 import pickle, geojson, json
+import math
 import shapely.geometry as sg
 
 from spat.trajectory import smooth
@@ -47,6 +48,8 @@ def main(argv):
     print()
 
     print('output file:', args.ofile)
+
+    logging.basicConfig(level=logging.DEBUG)
 
     files = (os.path.join(args.idir, file)
              for file in os.listdir(args.idir)

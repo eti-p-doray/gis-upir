@@ -1,6 +1,7 @@
-import datetime
+import datetime, logging
 import csv
 import pyproj
+
 
 def load_csv(data):
     rows = iter(data)
@@ -22,18 +23,18 @@ def load_csv(data):
     accuracy = []
     link = []
     previous_id = -1
+    previous_time = None
     for row in data:
         current_id = row[0]
         if current_id != previous_id:
             if observations:
-                print(previous_id)
-                if previous_id != '8012':
-                    yield {
-                        'observations': observations,
-                        'accuracy': accuracy,
-                        'id': previous_id,
-                        'link': link
-                    }
+                logging.info("loading %s", previous_id)
+                yield {
+                    'observations': observations,
+                    'accuracy': accuracy,
+                    'id': previous_id,
+                    'link': link
+                }
                 observations = []
                 accuracy = []
                 link = []

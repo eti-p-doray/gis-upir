@@ -1,3 +1,4 @@
+import logging
 import math
 import numpy
 
@@ -53,7 +54,7 @@ def filter_state(trajectories):
                                                               obs_transition, R)
 
                 if error > 50.0**2: # trajectory is broken
-                    print('trashing ', trajectory['id'], ' due to broken path')
+                    logging.warning("trashing %s due to broken path", t['id'])
                     break
             trajectory['state'].append(state.copy())
 
@@ -72,7 +73,7 @@ def smooth_state(trajectories):
             t['state'][i].smooth_update(next_state, F, Q)
             next_state = t['state'][i]
             if math.log10(numpy.linalg.det(next_state.P)) > 4*next_state.P.shape[0]:
-                print('trashing ', t['id'], ' due to broken path')
+                logging.warning("trashing %s due to broken path", t['id'])
                 broken = True
                 break
 
