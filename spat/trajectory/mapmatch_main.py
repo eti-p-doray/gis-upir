@@ -17,6 +17,13 @@ def make_geojson(trajectories, graph):
             features.append(geojson.Feature(
                 geometry = sg.mapping(sg.LineString(mm)),
                 properties = {'type':'mm'}))
+        for node in trajectory['node']:
+            if (isinstance(node, mapmatch.LinkedNode) or isinstance(node, mapmatch.ForwardingNode) or
+                isinstance(node, mapmatch.FloatingNode) or isinstance(node, mapmatch.JumpingNode)):
+                features.append(geojson.Feature(
+                    geometry= sg.mapping(sg.Point(node.coordinates())),
+                    properties= {'type': node.__class__.__name__}
+                ))
 
     fc = geojson.FeatureCollection(features)
     fc['crs'] = {'type': 'EPSG', 'properties': {'code': 2150}}
@@ -48,7 +55,7 @@ def main(argv):
     print('facility:', args.facility)
     print('output file:', args.ofile)
 
-    logging.basicConfig(level=logging.DEBUG)
+    logging.basicConfig(level=logging.INFO)
 
     with open(args.facility, 'rb') as f:
         graph = pickle.load(f)
