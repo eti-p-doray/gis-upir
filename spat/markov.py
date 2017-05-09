@@ -5,6 +5,13 @@ import logging
 from spat.priority_queue import PriorityQueue
 
 
+def no_handicap(key):
+    return 0.0
+
+def identity_projection(key):
+    return key
+
+
 class MarkovGraph:
     """ Represents a markov chain as a graph of virtual nodes.
   
@@ -19,14 +26,16 @@ class MarkovGraph:
     generator of adjacent hashable state keys, that takes the current state value as argument.
   
     """
-    def __init__(self, transition_generator, state_projection, state_cost_fcn, transition_cost_fcn, handicap_fcn):
+    def __init__(self, transition_generator, state_cost_fcn, transition_cost_fcn,
+                 state_projection=identity_projection,
+                 handicap_fcn = no_handicap):
         self.transition_generator = transition_generator
         self.state_projection = state_projection
         self.state_cost_fcn = state_cost_fcn
         self.transition_cost_fcn = transition_cost_fcn
         self.handicap_fcn = handicap_fcn
 
-    def find_best(self, origin, goal, progress_fcn, heuristic_fcn, priority_threshold):
+    def find_best(self, origin, goal, heuristic_fcn, priority_threshold=math.inf, progress_fcn=None):
 
         queue = PriorityQueue()
 
@@ -36,43 +45,46 @@ class MarkovGraph:
         handicap_cost = self.handicap_fcn(origin_node)
         heuristic = heuristic_fcn(origin_node)
 
-        queue.put((origin_node, origin), cost + heuristic)
+        queue.put(origin, cost + handicap_cost + heuristic)
         cost_table = {
             origin: (cost, cost + handicap_cost)
         }
         backtrack_chain = {
-            origin: (None, None)
+            origin: None
         }
         visited = {}
         progress_table = {}
 
         current_key = None
         while not queue.empty():
-            current_node, current_key = queue.get()
+            current_key = queue.get()
             if current_key == goal:
                 break
 
             if current_key in visited:
                 continue
 
-            step, progress = progress_fcn(current_key)
-            if step in progress_table and progress < progress_table[step]:
-                continue
+            if progress_fcn:
+                step, progress = progress_fcn(current_key)
+                if step in progress_table and progress < progress_table[step]:
+                    continue
+                progress_table[step] = progress
+            visited[current_key] = True
+
+            current_node = self.state_projection(current_key)
 
             logging.debug("Visit: %s", str(current_node))
 
             base_cost = cost_table[current_key][0]
 
-            visited[current_key] = True
-            progress_table[step] = progress
-
             for next_key in self.transition_generator(current_node):
                 if next_key in visited:
                     continue
 
-                step, progress = progress_fcn(next_key)
-                if step in progress_table and progress < progress_table[step]:
-                    continue
+                if progress_fcn:
+                    step, progress = progress_fcn(next_key)
+                    if step in progress_table and progress < progress_table[step]:
+                        continue
 
                 next_node = self.state_projection(next_key)
 
@@ -93,23 +105,22 @@ class MarkovGraph:
 
                 heuristic = heuristic_fcn(next_node)
                 priority = new_cost + handicap_cost + heuristic
-                if priority > priority_threshold:
+                if priority >= priority_threshold:
                     continue
 
                 logging.debug("priority, cost: %.4f, %.4f", priority, new_cost + handicap_cost)
 
-                queue.put((next_node, next_key), priority)
+                queue.put(next_key, priority)
                 cost_table[next_key] = (new_cost, new_cost + handicap_cost)
-                backtrack_chain[next_key] = (current_key, current_node)
+                backtrack_chain[next_key] = current_key
 
         if current_key != goal:
             return None
 
         def backtrack():
             key = current_key
-            node = current_node
             while key is not None:
-                yield key, node
-                key, node = backtrack_chain[key]
+                yield key
+                key = backtrack_chain[key]
 
         return reversed(list(backtrack()))
