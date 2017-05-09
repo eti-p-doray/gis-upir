@@ -189,7 +189,7 @@ class SpatialGraph:
             line = sg.mapping(sg.LineString(list(self.edge_geometry(u,v))))
             feature = geojson.Feature(
                 geometry = line,
-                properties = {'first': u, 'last': v, 'way_id':p['way_id'], 'id': p['edge_id']})
+                properties = {'first': u, 'last': v})
             features.append(feature)
             idx += 1
         fc = geojson.FeatureCollection(features)
