@@ -1,5 +1,6 @@
 import logging
 import math
+import numpy
 import shapefile
 import rtree
 import pyproj
@@ -176,6 +177,44 @@ def intersection_collection(collection):
     return fn
 
 
+def link_features(link, graph):
+    type = graph.edge(*link)['type']
+    edge_predicates = [
+        lambda link: True,
+        any_cycling_link,
+        designated_roadway,
+        bike_lane,
+        seperate_cycling_link,
+        offroad_link,
+        other_road_type,
+        arterial_link,
+        collector_link,
+        highway_link,
+        local_link,
+    ]
+    return numpy.array(list(map(lambda pred: pred(type), edge_predicates)))
+
+
+def intersection_features(a, b, graph, collections):
+    assert a[1] == b[0]
+    u, v = a
+    v, k = b
+    angle = graph.turn_angle(u, v, k)
+    node_predicates = [
+        lambda node: True,
+        intersection_collection(collections['end_of_facility']),
+        intersection_collection(collections['change_of_facility_type']),
+        intersection_collection(collections['intersections_disc']),
+        intersection_collection(collections['traffic_lights']),
+    ]
+    turn_predicates = [
+        left_turn,
+        right_turn
+    ]
+    return numpy.concatenate((numpy.array(list(map(lambda pred: pred(math.degrees(angle)), turn_predicates))),
+                              numpy.array(list(map(lambda pred: pred(v), node_predicates)))))
+
+
 def extract_features(trajectories, graph):
     end_of_facility = match_intersections(
         load_discontinuity("data/discontinuity/end_of_facility"), graph)
@@ -192,7 +231,6 @@ def extract_features(trajectories, graph):
     features = {}
     for trajectory in trajectories:
         logging.info("extracting features for %s", trajectory['id'])
-
 
         i = trajectory['id']
         features[i] = {}
