@@ -23,17 +23,26 @@ class SpatialGraph:
         for v in self.graph.neighbors(u):
             yield (u, v)
 
-    def search_nodes(self, bounds):
+    def search_node_intersection(self, bounds):
         return self.spatial_node_idx.intersection(bounds)
 
-    def search_edges(self, bounds):
+    def search_node_nearest(self, bounds, count):
+        return self.spatial_node_idx.nearest(bounds, count)
+
+    def search_edge_intersection(self, bounds):
         return self.spatial_edge_idx.intersection(bounds, objects=True)
 
-    def direction(self, u, v):
+    def search_edge_nearest(self, bounds, count):
+        return self.spatial_edge_idx.nearest(bounds, count, objects=True)
+
+    def valid_circulation(self, u, v):
+        return (not self.graph[u][v]['sens']) or self.ordered(u, v)
+
+    def ordered(self, u, v):
         return utility.xor(u > v, self.graph[u][v]['order'])
 
     def orient(self, u, v):
-        if not self.direction(u, v):
+        if not self.ordered(u, v):
             return u, v
         return u, v
 
@@ -48,7 +57,7 @@ class SpatialGraph:
 
     def edge_geometry(self, u, v):
         yield self.graph.node[u]['geometry']
-        if not self.direction(u, v):
+        if not self.ordered(u, v):
             inner = reversed(self.graph[u][v]['geometry'])
         else:
             inner = self.graph[u][v]['geometry']
@@ -57,7 +66,7 @@ class SpatialGraph:
         yield self.graph.node[v]['geometry']
 
     def inner_edge_geometry(self, u, v):
-        if not self.direction(u, v):
+        if not self.ordered(u, v):
             inner = reversed(self.graph[u][v]['geometry'])
         else:
             inner = self.graph[u][v]['geometry']
