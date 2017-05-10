@@ -1,5 +1,5 @@
 import sys, os, fnmatch, argparse, logging
-import pickle, geojson, json
+import pickle, geojson, json, csv
 import math
 import shapely.geometry as sg
 
@@ -29,34 +29,27 @@ def main(argv):
     that includes optimal smoothing with an autoregressive model,
     as well as filtering out broken trajectories.
     """, formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('-i', '--idir', default = 'data/bike_path',
-                        help="""directory containing input data files. 
-            All *.csv files will be imported""");
+    parser.add_argument('-i', '--ifile', default = 'data/bike_path/Chunk_1_mm.csv',
+                        help='input data file.');
     parser.add_argument('-o', '--ofile', default = 'data/bike_path/smoothed.pickle',
                         help='output pickle file to export serialized result');
     parser.add_argument('--geojson',
                         help='output geojson file to export smoothed geometry');
-    parser.add_argument('--max', default = math.inf, type=int,
-                        help='maximum number of trajectory that will be processed');
 
     args = parser.parse_args()
-    print('input directory:', args.idir)
-    print('found input files:')
-    for file in os.listdir(args.idir):
-        if fnmatch.fnmatch(file, '*.csv'):
-            print(' ', args.idir + file)
-    print()
-
+    print('input file:', args.ifile)
     print('output file:', args.ofile)
 
     logging.basicConfig(level=logging.DEBUG)
 
-    files = (os.path.join(args.idir, file)
-             for file in os.listdir(args.idir)
-             if fnmatch.fnmatch(file, '*.csv'))
+    smoothed_trajectories = []
+    with open(args.ifile, 'r') as f:
+      input_data = csv.reader(f)
+      for trajectory in load.load_csv(input_data):
+        smoothed_trajectory = smooth.smooth_state(trajectory)
+        if smoothed_trajectory is not None:
+          smoothed_trajectories.append(smoothed_trajectory)
 
-    trajectories = load.load_all(files, args.max)
-    smoothed_trajectories = list(smooth.smooth_state(trajectories))
 
     with open(args.ofile, 'wb+') as f:
         pickle.dump(smoothed_trajectories, f)

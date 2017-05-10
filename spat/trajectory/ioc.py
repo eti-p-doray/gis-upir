@@ -7,8 +7,7 @@ from spat.trajectory import features, model
 from spat import facility, markov, utility
 
 
-def inverse_optimal_control(data, batch_size,
-                            eval_gradient, weights,
+def inverse_optimal_control(data, eval_gradient, weights,
                             learning_rate, precision, nb_epochs):
     b1 = 0.9
     b2 = 0.999
@@ -21,9 +20,10 @@ def inverse_optimal_control(data, batch_size,
 
     for i in range(nb_epochs):
         numpy.random.shuffle(data)
-        for j in range(0, len(data), batch_size):
-            batch = data[j:j+batch_size]
-            gradient = eval_gradient(weights, batch)
+        for j in range(0, len(data)):
+            gradient = eval_gradient(weights, data[j])
+            if gradient is None:
+              continue
             logging.info("gradient: %s", str(gradient))
 
             m = b1 * m + (1.0 - b1) * gradient
@@ -44,7 +44,7 @@ class BoundNode:
         self.final = final
         self.coord = sg.Point(coord)
         self.edges = {}
-        for x in graph.search_edges(utility.bb_buffer(self.coord, 20.0)):
+        for x in graph.search_edge_nearest(utility.bb_buffer(self.coord, 5.0), 10):
             u, v = x.object
             link = sg.LineString(graph.edge_geometry(u, v))
             projection = link.project(self.coord)
@@ -73,7 +73,9 @@ class BoundNode:
     def cost_to(self, other, graph: facility.SpatialGraph, link_cost_fcn, intersection_cost_fcn):
         assert isinstance(other, Node)
         u, v = other.edge
-        return sg.LineString(graph.edge_geometry(u, v)).distance(self.coordinates()) * link_cost_fcn(None)
+        geometry = sg.LineString(graph.edge_geometry(u, v))
+        projection = geometry.project(self.coord)
+        return link_cost_fcn(geometry.distance(self.coordinates()), self.coord, geometry.interpolate(projection), None)
 
     def heuristic(self, graph: facility.SpatialGraph, goal, greedy_factor: float):
         return spatial.distance.euclidean(self.coordinates(), goal.coordinates()) * greedy_factor
@@ -109,7 +111,8 @@ class Node:
         return self.end - self.begin
 
     def cost(self, link_cost_fcn):
-        return self.length() * link_cost_fcn(self.edge)
+        geometry = sg.LineString(graph.edge_geometry(u, v))
+        return link_cost_fcn(self.length(), geometry.interpolate(self.begin), geometry.interpolate(self.end) self.edge)
 
     def cost_to(self, other, graph: facility.SpatialGraph, link_cost_fcn, intersection_cost_fcn):
         if isinstance(other, BoundNode):
@@ -120,14 +123,16 @@ class Node:
         return graph.node_geometry(self.edge[1]).distance(goal.coordinates()) * greedy_factor
 
 
-def best_path(weights, trajectory, graph: facility.SpatialGraph, intersection_collections):
+def best_path(weights, trajectory, graph: facility.SpatialGraph, intersection_collections, elevation, dst_proj):
     link_weights = weights[0:11]
     intersection_weights = weights[11:18]
 
-    def link_cost(link):
+    def distance_cost(length, start, end, link):
         if link is None:
-            return 300.0
-        return numpy.dot(features.link_features(link, graph), link_weights)
+            return 200.0 * length
+        start_elevation = elevation.at(n1, dst_proj)
+        end_elevation = elevation.at(n2, dst_proj)
+        return numpy.dot(features.link_features(length, start_elevation, end_elevation, link, graph), distance_weights)
 
     def intersection_cost(a, b):
         return numpy.dot(features.intersection_features(a, b, graph, intersection_collections), intersection_weights)
@@ -147,9 +152,12 @@ def best_path(weights, trajectory, graph: facility.SpatialGraph, intersection_co
         return state.heuristic(graph, goal, 2.0)
 
     chain = markov.MarkovGraph(adjacent_nodes, state_cost, transition_cost)
-    path = list(chain.find_best(BoundNode(trajectory['segment'][0].geometry[0], graph), goal, heuristic))
+    path = chain.find_best(BoundNode(trajectory['segment'][0].geometry[0], graph), goal, heuristic)
+    if path is None:
+      return None, None
+    path = list(path)
 
-    feature = numpy.ones(weights.shape)
+    feature = numpy.zeros(weights.shape)
     for node in path:
         if isinstance(node, Node):
             feature[0:11] += features.link_features(node.edge, graph) * node.length()
@@ -165,11 +173,11 @@ def feature_expectation(weights, trajectory, graph: facility.SpatialGraph, inter
     return feature
 
 
-def estimate_gradient(param, examples, graph: facility.SpatialGraph, intersection_collections):
-    gradient = numpy.zeros(param.shape)
-    for example in examples:
-        feature = feature_expectation(param, example[1], graph, intersection_collections)
-        #print 'features', feature
-        #print 'exemple', example[0]
-        gradient += numpy.divide(example[0] - feature, example[0] + 1.0)
-    return gradient
+def estimate_gradient(param, example, graph: facility.SpatialGraph, intersection_collections):
+    feature = feature_expectation(param, example[1], graph, intersection_collections)
+    if feature is None:
+        return None
+    logging.info("%s, %s", str(numpy.dot(param, feature)), str(numpy.dot(param, example[0])))
+    if numpy.dot(param, feature) < numpy.dot(param, example[0]) / 2.0:
+        return None # this example is too bad
+    return numpy.divide(example[0] - feature, example[0] + 1.0)

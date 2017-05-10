@@ -9,9 +9,13 @@ from spat.trajectory import features, model
 
 
 def ellipse_bounds(state, quantile):
-    ell = quantile * linalg.sqrtm(state.P[0:2, 0:2])
-    height = math.sqrt(ell[0][0] ** 2 + ell[1][0] ** 2)
-    width = math.sqrt(ell[0][1] ** 2 + ell[1][1] ** 2)
+    try:
+        ell = quantile * numpy.linalg.cholesky(state.P[0:2, 0:2])
+    except numpy.linalg.LinAlgError:
+        return utility.bb_buffer(sg.Point(state.x[0:2]), 0.0)
+
+    height = math.sqrt(ell[0,0] ** 2 + ell[1,0] ** 2)
+    width = math.sqrt(ell[0,1] ** 2 + ell[1,1] ** 2)
     return utility.bb_bounds(state.x[0], state.x[1], width, height)
 
 
@@ -83,6 +87,7 @@ class Link:
         self.segments = []
         self.length = 0.0
         for coord in utility.pairwise(graph.edge_geometry(*edge)):
+            #TODO: actually estimate link width and offset based on type and direction
             segment = Segment(edge, coord, 0.0, 2.0, self.length, transition)
             self.segments.append(segment)
             self.length += segment.length
@@ -141,7 +146,7 @@ class ProjectionManager:
                         projection_costs.append(cost)
 
             self.state_table[i] = {}
-            for x in self.graph.search_edges(bounds):
+            for x in self.graph.search_edge_intersection(bounds):
                 u, v = x.object
                 visit_edge(i, (u, v))
                 visit_edge(i, (v, u))
@@ -250,13 +255,14 @@ class LinkedNode:
             assert self.edge == other.edge
             return abs(other.projection() - self.projection())  # difference on same edge
         elif isinstance(other, ForwardingNode):
-            return self.link.length - (self.segment.distance + self.projected_state.x[0])  # remaining length of edge
+            return abs(self.link.length - self.projection())  # remaining length of edge
         return 0.0
 
     def cost_to(self, other, distance_cost_fcn, intersection_cost_fcn):
         if isinstance(other, FinalNode):
             return 0.0
-        cost = self.distance_to(other) * distance_cost_fcn(self.edge)
+        if isinstance(other, LinkedNode) or isinstance(other, ForwardingNode):
+          cost = distance_cost_fcn(self.distance_to(other), self.coordinate(), other.coordinate(), self.edge)
         if isinstance(other, LinkedNode):
             cost += projection_distance_cost(self.next_projected_state, other.projected_state,
                                              other.segment.distance - self.segment.distance)
@@ -335,7 +341,7 @@ class ForwardingNode:
             return self.link.length  # other is always on a segment adjacent to self
 
     def cost_to(self, other, distance_cost_fcn, intersection_cost_fcn):
-        cost = self.distance_to(other) * distance_cost_fcn(self.edge)
+        cost = distance_cost_fcn(self.distance_to(other), self.coordinates(), other.coordinates(), self.edge)
         if isinstance(other, LinkedNode):
             assert other.edge == self.edge
             segment = other.segment
@@ -402,7 +408,7 @@ class FloatingNode:
     def cost_to(self, other, distance_cost_fcn, intersection_cost_fcn):
         if isinstance(other, FinalNode):
             return 0.0
-        return self.distance_to(other) * distance_cost_fcn(None)
+        return distance_cost_fcn(self.distance_to(other), self.coordinates(), other.coordinates(), None)
 
     def handicap(self, distance_cost_fcn):
         return 0.0
@@ -460,10 +466,10 @@ class JumpingNode:
         return spatial.distance.euclidean(self.anchor.coordinates(), other.coordinates())
 
     def cost_to(self, other, distance_cost_fcn, intersection_cost_fcn):
-        return self.distance_to(other) * distance_cost_fcn(None)
+        return distance_cost_fcn(self.distance_to(other), self.anchor.coordinates(), other.coordinates(), None)
 
     def handicap(self, distance_cost_fcn):
-        return self.distance_to(self) * distance_cost_fcn(None)
+        return distance_cost_fcn(self.distance_to(self), self.anchor.coordinates(), self.coordinates(), None)
 
     def heuristic(self, states, distance_cost_fcn, cumulative_distance, greedy_factor):
         return - greedy_factor * cumulative_distance[self.anchor.idx+1]
@@ -588,7 +594,7 @@ def format_path(path):
         previous_node = node
 
 
-def solve_one(trajectory, graph, distance_cost_fcn, intersection_cost_fcn, greedy_factor):
+def solve(trajectory, graph, distance_cost_fcn, intersection_cost_fcn, greedy_factor):
     logging.info("solving mapmatch for %s", trajectory['id'])
 
     states = trajectory['state']
@@ -628,49 +634,12 @@ def solve_one(trajectory, graph, distance_cost_fcn, intersection_cost_fcn, greed
                                handicap_fcn=handicap, state_projection=project)
 
     start_time = time.time()
-    path = chain.find_best(InitialNode(), FinalNode(), heuristic, priority_threshold=300000.0, progress_fcn=progress)
+    path = chain.find_best(InitialNode(), FinalNode(), heuristic, priority_threshold=200000.0, progress_fcn=progress)
     logging.info("elapsed_time: %.4f", time.time() - start_time)
     if path is None:
+        logging.warning("trashing %s due to incomplete mapmatch", trajectory['id'])
         return None
-    return [project(key) for key in path]
 
-
-def solve(trajectories, graph, greedy_factor):
-    distance_weights = numpy.array([
-        -1.44504282,  1.01295696,  1.92465963,  1.67661907,  1.30585154,  3.80870991,
-        5.10398271,  1.70687101,  1.90445324,  2.01541104,  2.08286045])
-    intersection_weights = numpy.array([
-        1.71281308, 1.26563477, - 0.56916418,  4.29999485,  0.53619568, - 0.88838111,  1.56403229])
-
-    def distance_cost(link):
-        if link is None:
-            return 100.0
-        return numpy.dot(features.link_features(link, graph), distance_weights)
-
-    intersection_collections = {
-        'end_of_facility': features.match_intersections(
-            features.load_discontinuity("data/discontinuity/end_of_facility"), graph),
-        'change_of_facility_type': features.match_intersections(
-            features.load_discontinuity("data/discontinuity/change_of_facility_type"), graph),
-        'intersections_disc': features.match_intersections(
-            features.load_discontinuity("data/intersections/intersections_on_bike_network_with_change_in_road_type"),
-            graph),
-        'traffic_lights': features.match_intersections(
-            features.load_traffic_lights("data/traffic_lights/All_lights"), graph),
-    }
-
-    def intersection_cost(a, b):
-        return numpy.dot(features.intersection_features(a, b, graph, intersection_collections), intersection_weights)
-
-    for trajectory in trajectories:
-        path = solve_one(trajectory, graph, distance_cost, intersection_cost, greedy_factor)
-        if path is None:
-            logging.warning("trashing %s due to incomplete mapmatch", trajectory['id'])
-            continue
-        path = list(path)
-
-        yield {
-            'segment': list(format_path(path)),
-            'node': path,
+    return {'segment': list(format_path([project(key) for key in path])),
             'id': trajectory['id'],
             'count': len(trajectory['state'])}

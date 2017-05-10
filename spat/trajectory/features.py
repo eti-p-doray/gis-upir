@@ -6,7 +6,7 @@ import rtree
 import pyproj
 import shapely.geometry as sg
 
-from spat import utility, raster, stats
+from spat import utility, raster
 
 
 class RegionPartition:
@@ -58,7 +58,7 @@ def match_intersections(points, graph):
     intersection_index = {}
     for i, p in enumerate(points):
         geom = p['geometry']
-        nearby = graph.search_nodes(utility.bb_bounds(geom.x, geom.y, 2, 2))
+        nearby = graph.search_node_nearest(utility.bb_bounds(geom.x, geom.y, 2, 2), 3)
 
         min_distance = math.inf
         best_node = None
@@ -106,13 +106,15 @@ def extract_nodes(trajectory):
 
 def extract_elevation_stats(trajectory, graph, elevation):
     dst_proj = pyproj.Proj(init='epsg:4326')
-    running_stats = stats.RunningStats()
     for n1, n2 in utility.pairwise(extract_nodes(trajectory)):
         e1 = elevation.at(n1, dst_proj)
-        e2 = elevation.at(n1, dst_proj)
+        e2 = elevation.at(n2, dst_proj)
         d = sg.Point(n1).distance(sg.Point(n2))
-        running_stats.push(e1 - e2 / d, d)
-    return running_stats
+        if d > 0.0:
+          slope = (e2 - e1) / d
+          M2 += slope ** 2
+          M3 += slope ** 3
+    return M2, M3
 
 
 def link_type_predicate(graph, predicate):
@@ -120,6 +122,14 @@ def link_type_predicate(graph, predicate):
         if link is None:
             return False
         return predicate(graph.edge(*link)['type'])
+    return fn
+
+
+def link_circulation(graph):
+    def fn(link):
+        if link is None:
+            return False
+        return not graph.valid_circulation(*link)
     return fn
 
 
@@ -177,7 +187,7 @@ def intersection_collection(collection):
     return fn
 
 
-def link_features(link, graph):
+def link_features(length, start_elevation, end_elevation, link, graph):
     type = graph.edge(*link)['type']
     edge_predicates = [
         lambda link: True,
@@ -192,7 +202,12 @@ def link_features(link, graph):
         highway_link,
         local_link,
     ]
-    return numpy.array(list(map(lambda pred: pred(type), edge_predicates)))
+    slope = 0.0
+    if length > 0.0:
+      slope = (end_elevation - start_elevation) / length
+
+    return numpy.array(list(map(lambda pred: pred(type), edge_predicates)) + 
+                       [not graph.valid_circulation(*link), slope**2, slope**3]) * length
 
 
 def intersection_features(a, b, graph, collections):
@@ -211,8 +226,8 @@ def intersection_features(a, b, graph, collections):
         left_turn,
         right_turn
     ]
-    return numpy.concatenate((numpy.array(list(map(lambda pred: pred(math.degrees(angle)), turn_predicates))),
-                              numpy.array(list(map(lambda pred: pred(v), node_predicates)))))
+    return numpy.array(list(map(lambda pred: pred(math.degrees(angle)), turn_predicates)) +
+                       list(map(lambda pred: pred(v), node_predicates)))
 
 
 def extract_features(trajectories, graph):
@@ -256,6 +271,7 @@ def extract_features(trajectories, graph):
                                                        link_type_predicate(graph, highway_link))
         features[i]['length_local'] = extract_length(trajectory,
                                                      link_type_predicate(graph, local_link))
+        features[i]['length_inverse'] = extract_length(trajectory, link_circulation(graph))
 
         features[i]['left_turn'] = extract_turn(trajectory, graph, left_turn)
         features[i]['right_turn'] = extract_turn(trajectory, graph, right_turn)
@@ -278,8 +294,8 @@ def extract_features(trajectories, graph):
                                    trajectory['segment'][0].begin.idx)
         features[i]['avg_speed'] = features[i]['length'] / features[i]['duration']
 
-        elev_stats = extract_elevation_stats(trajectory, graph, elevation)
-        features[i]['elev_var'] = elev_stats.variance()
-        features[i]['elev_skew'] = elev_stats.skewness()
+        elev_M2, elev_M3 = extract_elevation_stats(trajectory, graph, elevation)
+        features[i]['elev_m2'] = elev_M2
+        features[i]['elev_m3'] = elev_M2
 
     return features

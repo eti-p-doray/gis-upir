@@ -67,6 +67,9 @@ def main(argv):
             features.load_traffic_lights("data/traffic_lights/All_lights"), graph),
     }
 
+    elevation = raster.RasterImage("data/elevation/30n090w_20101117_gmted_min075.tif")
+    dst_proj = pyproj.Proj(init='epsg:4326')
+
     """weights = numpy.ones(18)
     for i, trajectory in enumerate(mm):
         path, feature = ioc.best_path(weights, trajectory, graph, intersection_collections)
@@ -102,14 +105,28 @@ def main(argv):
         ]), trajectory)
         data.append(example)
 
-    weights = numpy.array([-1.44504282,  1.01295696,  1.92465963,  1.67661907,  1.30585154,  3.80870991,
-                            5.10398271,  1.70687101,  1.90445324,  2.01541104,  2.08286045,  1.71281308,
-                            1.26563477, -0.56916418,  4.29999485,  0.53619568, -0.88838111,  1.56403229])
+    weights = numpy.array([
+        -1.28196656,   1.77788516,   5.3258071,    5.33732081,   5.28143121,
+        19.11296935,  26.64963663,   7.24787299,   7.20067051,   7.14238749,
+        7.20586499,   2.90069485,   3.9690854,   -1.47872437,  26.92730463,
+        5.55673258,  -2.17199329,  15.23823839])
+
+    weights *= len(mm) * len(mm)
+    print(weights)
 
     weights = ioc.inverse_optimal_control(
-        data, 1,
+        data,
         lambda param, examples: ioc.estimate_gradient(param, examples, graph, intersection_collections), weights,
-        0.01, 0.1, 200)
+        0.01, 0.1, 2)
+
+    score = numpy.zeros(weights.shape)
+    for i, trajectory in enumerate(mm):
+        path, feature = ioc.best_path(weights, trajectory, graph, intersection_collections)
+        logging.info("feature: %s", str(feature))
+        score += numpy.dot(weights, feature)
+
+    weights = (weights / score) * len(mm)
+    print(weights)
 
 
 if __name__ == "__main__":
