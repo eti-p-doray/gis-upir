@@ -51,6 +51,9 @@ class MarkovGraph:
         cost_table = {
             origin: (cost, cost + handicap_cost)
         }
+        priority_table = {
+            origin: cost + handicap_cost + heuristic
+        }
         backtrack_chain = {
             origin: None
         }
@@ -106,19 +109,22 @@ class MarkovGraph:
                 handicap_cost = self.handicap_fcn(next_node)
                 new_cost = base_cost + state_cost + transition_cost
 
-                if (new_cost == math.inf or
-                    (next_node in cost_table and new_cost + handicap_cost >= cost_table[next_key][1])):
-                    continue
+                #if (new_cost == math.inf or
+                #    (next_node in cost_table and new_cost + handicap_cost >= cost_table[next_key][1])):
+                #    continue
 
                 heuristic = heuristic_fcn(next_node)
                 priority = new_cost + handicap_cost + heuristic
                 if priority >= priority_threshold:
                     continue
+                if next_key in priority_table and priority >= priority_table[next_key]:
+                    continue
 
-                logging.debug("priority, cost: %.4f, %.4f", priority, new_cost + handicap_cost)
+                logging.debug("priority, cost, heuristic: %.4f, %.4f, %.4f", priority, new_cost + handicap_cost, heuristic)
 
                 queue.put(next_key, priority)
                 cost_table[next_key] = (new_cost, new_cost + handicap_cost)
+                priority_table[next_key] = priority
                 backtrack_chain[next_key] = current_key
 
         if current_key != goal:

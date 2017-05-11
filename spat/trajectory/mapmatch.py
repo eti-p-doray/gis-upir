@@ -137,15 +137,14 @@ class ProjectionManager:
 
             def visit_edge(i, edge):
                 self.state_table[i][edge] = []
-                link = self.link_manager.at(edge)
                 for offset, segment in enumerate(utility.pairwise(self.graph.edge_geometry(edge).coords)):
                     if utility.intersect(sg.LineString(segment).bounds, bounds):
-                        cost, constrained_state, projected_state = link[offset].project(self.states[i].copy())
+                        cost, constrained_state, projected_state = self.at(i, edge, offset)
                         projections.append((edge, offset, constrained_state, projected_state))
                         projection_costs.append(cost)
 
             self.state_table[i] = {}
-            for x in self.graph.search_edge_intersection(bounds):
+            for x in self.graph.search_edge_nearest(bounds, 5):
                 u, v, key = x.object
                 visit_edge(i, (u, v, key))
                 visit_edge(i, (v, u, key))

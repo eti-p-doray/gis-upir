@@ -61,11 +61,13 @@ def main(argv):
                         default='data/mtl_geobase/mtl.pickle',
                         help="""output file containing a serialization of the graph. 
       Supported formats include *.json, *.csv""")
+    parser.add_argument('--geojson',
+                        help='output geojson file to export constrained geometry')
 
     args = parser.parse_args()
     print('output file:', args.ofile)
 
-    distance_threshold = 2.0
+    distance_threshold = 6.0
 
     graph = facility.SpatialGraph()
     graph.build_spatial_node_index()
@@ -76,6 +78,10 @@ def main(argv):
 
     with open(args.ofile, 'wb+') as f:
         pickle.dump(graph, f)
+
+    if args.geojson is not None:
+        with open(args.geojson, 'w+') as f:
+            json.dump(graph.make_geojson(2150), f, indent=2)
     print('done')
 
 if __name__ == "__main__":

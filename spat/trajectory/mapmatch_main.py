@@ -16,6 +16,7 @@ def make_geojson(trajectories, graph):
         for segment in segments:
             for point in segment.geometry:
                 mm.append(point)
+
         if len(mm) > 1:
             features.append(geojson.Feature(
                 geometry = sg.mapping(sg.LineString(mm)),
@@ -60,7 +61,7 @@ def main(argv):
     print('facility:', args.facility)
     print('output file:', args.ofile)
 
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(level=logging.DEBUG)
 
     with open(args.facility, 'rb') as f:
         graph = pickle.load(f)
@@ -105,6 +106,8 @@ def main(argv):
     with open(args.ifile, 'r') as f:
         input_data = csv.reader(f)
         for trajectory in utility.take(load.load_csv(input_data), args.max):
+            #if trajectory['id'] != '1012':
+            #    continue
             smoothed_trajectory = smooth.smooth_state(trajectory)
             if smoothed_trajectory is None:
                 continue

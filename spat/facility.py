@@ -142,7 +142,7 @@ class SpatialGraph:
         sf.field('way_id')
         sf.field('id')
         idx = 0
-        for u, v, p, k in self.graph.edges(data=True,keys=True):
+        for u, v, k, p in self.graph.edges(data=True,keys=True):
             line = sg.mapping(self.edge_geometry((u,v,k)))
             sf.line(parts=[line['coordinates']])
             sf.record(first= u, last= v, way_id= p['way_id'], id= p['edge_id'])
@@ -152,7 +152,7 @@ class SpatialGraph:
     def make_geojson(self, epsg):
         features = []
         idx = 0
-        for u, v, p, k in self.graph.edges_iter(data=True, keys=True):
+        for u, v, k, p in self.graph.edges_iter(data=True, keys=True):
             line = sg.mapping(self.edge_geometry((u,v,k)))
             feature = geojson.Feature(
                 geometry = line,
