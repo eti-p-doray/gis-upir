@@ -1,5 +1,6 @@
 import logging
 import math
+import itertools
 import numpy
 import shapefile
 import rtree
@@ -106,14 +107,16 @@ def extract_nodes(trajectory):
 
 def extract_elevation_stats(trajectory, graph, elevation):
     dst_proj = pyproj.Proj(init='epsg:4326')
+    M2 = 0.0
+    M3 = 0.0
     for n1, n2 in utility.pairwise(extract_nodes(trajectory)):
         e1 = elevation.at(n1, dst_proj)
         e2 = elevation.at(n2, dst_proj)
         d = sg.Point(n1).distance(sg.Point(n2))
         if d > 0.0:
-          slope = (e2 - e1) / d
-          M2 += slope ** 2
-          M3 += slope ** 3
+            slope = (e2 - e1) / d
+            M2 += (slope ** 2) * d
+            M3 += (slope ** 3) * d
     return M2, M3
 
 
@@ -188,26 +191,29 @@ def intersection_collection(collection):
 
 
 def link_features(length, start_elevation, end_elevation, link, graph):
-    type = graph.edge(*link)['type']
-    edge_predicates = [
-        lambda link: True,
-        any_cycling_link,
-        designated_roadway,
-        bike_lane,
-        seperate_cycling_link,
-        offroad_link,
-        other_road_type,
-        arterial_link,
-        collector_link,
-        highway_link,
-        local_link,
-    ]
+    if link is not None:
+        type = graph.edge(*link)['type']
+        edge_predicates = [
+            lambda link: True,
+            any_cycling_link,
+            designated_roadway,
+            bike_lane,
+            seperate_cycling_link,
+            offroad_link,
+            other_road_type,
+            arterial_link,
+            collector_link,
+            highway_link,
+            local_link,
+        ]
+        link_types = map(lambda pred: pred(type), edge_predicates)
+    else:
+        link_types = itertools.repeat(False, 11)
     slope = 0.0
     if length > 0.0:
-      slope = (end_elevation - start_elevation) / length
+        slope = (end_elevation - start_elevation) / length
 
-    return numpy.array(list(map(lambda pred: pred(type), edge_predicates)) + 
-                       [not graph.valid_circulation(*link), slope**2, slope**3]) * length
+    return numpy.array(list(link_types) + [link_circulation(graph)(link), slope**2, slope**3]) * length
 
 
 def intersection_features(a, b, graph, collections):
@@ -296,6 +302,6 @@ def extract_features(trajectories, graph):
 
         elev_M2, elev_M3 = extract_elevation_stats(trajectory, graph, elevation)
         features[i]['elev_m2'] = elev_M2
-        features[i]['elev_m3'] = elev_M2
+        features[i]['elev_m3'] = elev_M3
 
     return features

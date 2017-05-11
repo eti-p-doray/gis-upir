@@ -52,15 +52,13 @@ def filter_state(trajectory):
     return None
 
 
-
 def smooth_state(trajectory):
     trajectory = filter_state(trajectory)
     if trajectory is None:
-      return None
+        return None
     (F, Q) = trajectory['transition']
     next_state = trajectory['state'][-1]
 
-    broken = False
     for i, _ in utility.drop(utility.enumerate_reversed(trajectory['state']), 1):
         trajectory['state'][i].smooth_update(next_state, F, Q)
         next_state = trajectory['state'][i]

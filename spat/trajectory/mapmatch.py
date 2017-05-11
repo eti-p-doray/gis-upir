@@ -261,8 +261,9 @@ class LinkedNode:
     def cost_to(self, other, distance_cost_fcn, intersection_cost_fcn):
         if isinstance(other, FinalNode):
             return 0.0
+        cost = 0.0
         if isinstance(other, LinkedNode) or isinstance(other, ForwardingNode):
-          cost = distance_cost_fcn(self.distance_to(other), self.coordinate(), other.coordinate(), self.edge)
+          cost += distance_cost_fcn(self.distance_to(other), self.coordinates(), other.coordinates(), self.edge)
         if isinstance(other, LinkedNode):
             cost += projection_distance_cost(self.next_projected_state, other.projected_state,
                                              other.segment.distance - self.segment.distance)

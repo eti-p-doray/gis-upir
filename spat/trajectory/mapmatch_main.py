@@ -2,8 +2,10 @@ import sys, argparse, logging
 import pickle, json, geojson, csv
 import shapely.geometry as sg
 import numpy
+import pyproj
 
 from spat.trajectory import mapmatch, smooth, load, features
+from spat import raster
 
 
 def make_geojson(trajectories, graph):
@@ -63,10 +65,10 @@ def main(argv):
     graph.build_spatial_edge_index()
     graph.build_spatial_node_index()
 
-    distance_weights = numpy.array([
+    link_weights = numpy.array([
         1.0,   0.0,   0.0,    0.0,   0.0,
         0.0,  0.0,   0.0,   0.0,   0.0,
-        0.0])
+        0.0, 0.0, 0.0, 0.0])
     intersection_weights = numpy.array([
         1.0,   0.0,   0.0,  0.0,
         0.0,  0.0,  0.0])
@@ -87,26 +89,27 @@ def main(argv):
     dst_proj = pyproj.Proj(init='epsg:4326')
 
     def distance_cost(length, start, end, link):
+        start_elevation = elevation.at(start, dst_proj)
+        end_elevation = elevation.at(end, dst_proj)
+        cost = numpy.dot(features.link_features(length, start_elevation, end_elevation, link, graph), link_weights)
         if link is None:
-            return 200.0 * length
-        start_elevation = elevation.at(n1, dst_proj)
-        end_elevation = elevation.at(n2, dst_proj)
-        return numpy.dot(features.link_features(length, start_elevation, end_elevation, link, graph), distance_weights)
+            cost += 200.0 * length
+        return cost
 
     def intersection_cost(a, b):
         return numpy.dot(features.intersection_features(a, b, graph, intersection_collections), intersection_weights)
 
     matched = []
     with open(args.ifile, 'r') as f:
-      input_data = csv.reader(f)
-      for trajectory in load.load_csv(input_data):
-        smoothed_trajectory = smooth.smooth_state(trajectory)
-        if smoothed_trajectory is None:
-          continue
-        matched_trajectory = mapmatch.solve(smoothed_trajectory, graph, distance_cost, intersection_cost, args.factor)
-        if matched_trajectory is None:
-          continue
-        matched.append(matched_trajectory)
+        input_data = csv.reader(f)
+        for i, trajectory in zip(range(0, 5), load.load_csv(input_data)):
+            smoothed_trajectory = smooth.smooth_state(trajectory)
+            if smoothed_trajectory is None:
+                continue
+            matched_trajectory = mapmatch.solve(smoothed_trajectory, graph, distance_cost, intersection_cost, args.factor)
+            if matched_trajectory is None:
+                continue
+            matched.append(matched_trajectory)
 
     with open(args.ofile, 'wb+') as f:
         pickle.dump(matched, f)

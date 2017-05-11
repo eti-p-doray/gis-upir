@@ -2,8 +2,10 @@ import sys, argparse, logging
 import pickle, json, geojson
 import shapely.geometry as sg
 import numpy
+import pyproj
 
 from spat.trajectory import ioc, features
+from spat import raster
 
 
 def make_geojson(trajectories, graph):
@@ -116,12 +118,13 @@ def main(argv):
 
     weights = ioc.inverse_optimal_control(
         data,
-        lambda param, examples: ioc.estimate_gradient(param, examples, graph, intersection_collections), weights,
+        lambda param, examples: ioc.estimate_gradient(param, examples, graph,
+                                                      intersection_collections, elevation, dst_proj), weights,
         0.01, 0.1, 2)
 
     score = numpy.zeros(weights.shape)
     for i, trajectory in enumerate(mm):
-        path, feature = ioc.best_path(weights, trajectory, graph, intersection_collections)
+        path, feature = ioc.best_path(weights, trajectory, graph, intersection_collections, elevation, dst_proj)
         logging.info("feature: %s", str(feature))
         score += numpy.dot(weights, feature)
 

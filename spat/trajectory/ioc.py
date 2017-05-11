@@ -67,7 +67,7 @@ class BoundNode:
     def on(self, edge):
         return edge in self.edges
 
-    def cost(self, link_cost_fcn):
+    def cost(self, graph: facility.SpatialGraph, link_cost_fcn):
         return 0.0
 
     def cost_to(self, other, graph: facility.SpatialGraph, link_cost_fcn, intersection_cost_fcn):
@@ -110,9 +110,9 @@ class Node:
     def length(self):
         return self.end - self.begin
 
-    def cost(self, link_cost_fcn):
-        geometry = sg.LineString(graph.edge_geometry(u, v))
-        return link_cost_fcn(self.length(), geometry.interpolate(self.begin), geometry.interpolate(self.end) self.edge)
+    def cost(self, graph: facility.SpatialGraph, link_cost_fcn):
+        geometry = sg.LineString(graph.edge_geometry(*self.edge))
+        return link_cost_fcn(self.length(), geometry.interpolate(self.begin), geometry.interpolate(self.end), self.edge)
 
     def cost_to(self, other, graph: facility.SpatialGraph, link_cost_fcn, intersection_cost_fcn):
         if isinstance(other, BoundNode):
@@ -124,15 +124,16 @@ class Node:
 
 
 def best_path(weights, trajectory, graph: facility.SpatialGraph, intersection_collections, elevation, dst_proj):
-    link_weights = weights[0:11]
-    intersection_weights = weights[11:18]
+    link_weights = weights[0:14]
+    intersection_weights = weights[14:21]
 
     def distance_cost(length, start, end, link):
+        start_elevation = elevation.at(start, dst_proj)
+        end_elevation = elevation.at(end, dst_proj)
+        cost = numpy.dot(features.link_features(length, start_elevation, end_elevation, link, graph), link_weights)
         if link is None:
-            return 200.0 * length
-        start_elevation = elevation.at(n1, dst_proj)
-        end_elevation = elevation.at(n2, dst_proj)
-        return numpy.dot(features.link_features(length, start_elevation, end_elevation, link, graph), distance_weights)
+            cost += 200.0 * length
+        return cost
 
     def intersection_cost(a, b):
         return numpy.dot(features.intersection_features(a, b, graph, intersection_collections), intersection_weights)
@@ -143,10 +144,10 @@ def best_path(weights, trajectory, graph: facility.SpatialGraph, intersection_co
         return state.adjacent_nodes(graph, goal)
 
     def state_cost(state):
-        return state.cost(link_cost)
+        return state.cost(graph, distance_cost)
 
     def transition_cost(current_state, next_state):
-        return current_state.cost_to(next_state, graph, link_cost, intersection_cost)
+        return current_state.cost_to(next_state, graph, distance_cost, intersection_cost)
 
     def heuristic(state):
         return state.heuristic(graph, goal, 2.0)
@@ -160,7 +161,10 @@ def best_path(weights, trajectory, graph: facility.SpatialGraph, intersection_co
     feature = numpy.zeros(weights.shape)
     for node in path:
         if isinstance(node, Node):
-            feature[0:11] += features.link_features(node.edge, graph) * node.length()
+            geometry = sg.LineString(graph.edge_geometry(*node.edge))
+            feature[0:11] += features.link_features(node.length(),
+                                                    geometry.interpolate(node.begin),
+                                                    geometry.interpolate(node.end), node.edge, graph)
     for a, b in utility.pairwise(path):
         if isinstance(a, Node) and isinstance(b, Node):
             feature[11:18] += features.intersection_features(a.edge, b.edge, graph, intersection_collections)
@@ -168,13 +172,13 @@ def best_path(weights, trajectory, graph: facility.SpatialGraph, intersection_co
     return path, feature
 
 
-def feature_expectation(weights, trajectory, graph: facility.SpatialGraph, intersection_collections):
-    path, feature = best_path(weights, trajectory, graph, intersection_collections)
+def feature_expectation(weights, trajectory, graph: facility.SpatialGraph, intersection_collections, elevation, dst_proj):
+    path, feature = best_path(weights, trajectory, graph, intersection_collections, elevation, dst_proj)
     return feature
 
 
-def estimate_gradient(param, example, graph: facility.SpatialGraph, intersection_collections):
-    feature = feature_expectation(param, example[1], graph, intersection_collections)
+def estimate_gradient(param, example, graph: facility.SpatialGraph, intersection_collections, elevation, dst_proj):
+    feature = feature_expectation(param, example[1], graph, intersection_collections, elevation, dst_proj)
     if feature is None:
         return None
     logging.info("%s, %s", str(numpy.dot(param, feature)), str(numpy.dot(param, example[0])))

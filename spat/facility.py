@@ -36,7 +36,9 @@ class SpatialGraph:
         return self.spatial_edge_idx.nearest(bounds, count, objects=True)
 
     def valid_circulation(self, u, v):
-        return (not self.graph[u][v]['sens']) or self.ordered(u, v)
+        if self.graph[u][v]['sens'] == 0:
+            return True
+        return not utility.xor(self.graph[u][v]['sens'] > 0, self.ordered(u, v))
 
     def ordered(self, u, v):
         return utility.xor(u > v, self.graph[u][v]['order'])
