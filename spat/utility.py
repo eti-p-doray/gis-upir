@@ -13,6 +13,10 @@ def drop(iterable, n):
     return itertools.islice(iterable, n, None)
 
 
+def take(iterable, n):
+    return itertools.islice(iterable, 0, n)
+
+
 def enumerate_reversed(L):
     for i in reversed(range(len(L))):
         yield i, L[i]

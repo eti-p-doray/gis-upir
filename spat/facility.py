@@ -10,8 +10,8 @@ from spat import utility
 
 class SpatialGraph:
     def __init__(self):
-        self.graph = nx.Graph()
-        self.metadata = {}
+        self.graph = nx.MultiGraph()
+        self.geometry = {}
 
     def has_node(self, item):
         return self.graph.has_node(item)
@@ -20,8 +20,9 @@ class SpatialGraph:
         return self.graph.has_edge(u, v)
 
     def adjacent(self, u):
-        for v in self.graph.neighbors(u):
-            yield (u, v)
+        for v in self.graph[u]:
+            for k in range(0, self.graph.number_of_edges(u, v)):
+                yield (u, v, k)
 
     def search_node_intersection(self, bounds):
         return self.spatial_node_idx.intersection(bounds)
@@ -35,91 +36,58 @@ class SpatialGraph:
     def search_edge_nearest(self, bounds, count):
         return self.spatial_edge_idx.nearest(bounds, count, objects=True)
 
-    def valid_circulation(self, u, v):
-        if self.graph[u][v]['sens'] == 0:
+    def valid_circulation(self, edge):
+        u, v, k = edge
+        if self.graph[u][v][k]['sens'] == 0:
             return True
-        return not utility.xor(self.graph[u][v]['sens'] > 0, self.ordered(u, v))
+        return not utility.xor(self.graph[u][v][k]['sens'] > 0, self.ordered(edge))
 
-    def ordered(self, u, v):
-        return utility.xor(u > v, self.graph[u][v]['order'])
+    def ordered(self, edge):
+        u, v, k = edge
+        return utility.xor(u > v, self.graph[u][v][k]['order'])
 
-    def orient(self, u, v):
-        if not self.ordered(u, v):
-            return u, v
-        return u, v
+    def orient(self, edge):
+        u, v, k = edge
+        if not self.ordered(edge):
+            return u, v, k
+        return u, v, k
 
-    def edge(self, u, v):
-        return self.graph[u][v]
+    def edge(self, edge):
+        u, v, k = edge
+        return self.graph[u][v][k]
 
     def node(self, u):
         return self.graph.node[u]
 
-    def edge_geometry_size(self, u, v):
-        return len(self.graph[u][v]['geometry']) + 1
-
-    def edge_geometry(self, u, v):
-        yield self.graph.node[u]['geometry']
+    def edge_geometry(self, edge):
+        return self.geometry[edge]
+        """yield self.graph.node[u]['geometry']
         if not self.ordered(u, v):
             inner = reversed(self.graph[u][v]['geometry'])
         else:
             inner = self.graph[u][v]['geometry']
         for point in inner:
             yield point
-        yield self.graph.node[v]['geometry']
-
-    def inner_edge_geometry(self, u, v):
-        if not self.ordered(u, v):
-            inner = reversed(self.graph[u][v]['geometry'])
-        else:
-            inner = self.graph[u][v]['geometry']
-        for point in inner:
-            yield point
+        yield self.graph.node[v]['geometry']"""
 
     def node_geometry(self, i):
         return self.graph.node[i]['geometry']
 
     # turn angle in radians. 0 is staight, negative is right.
-    def turn_angle(self, u, v, k):
-        link0 = self.graph[u][v]['geometry']
-        if link0:
-            p0 = utility.point_to_vec(link0[-1])
-        else:
-            p0 = utility.point_to_vec(self.graph.node[u]['geometry'])
+    def turn_angle(self, e1, e2):
+        _, v, _ = e1
+
+        link0 = self.edge_geometry(e1)
+        p0 = link0.coords[-1]
 
         p1 = utility.point_to_vec(self.graph.node[v]['geometry'])
 
-        link1 = self.graph[v][k]['geometry']
-        if link1:
-            p2 = utility.point_to_vec(link1[0])
-        else:
-            p2 = utility.point_to_vec(self.graph.node[k]['geometry'])
+        link1 = self.edge_geometry(e2)
+        p2 = link1.coords[0]
 
         v0 = numpy.array(p1) - numpy.array(p0)
         v1 = numpy.array(p2) - numpy.array(p1)
         return numpy.math.atan2(numpy.linalg.det([v0,v1]), numpy.dot(v0,v1))
-
-    def node_collapse(self, u, n, v):
-        self.graph.add_edge(u, v,
-                            edge_id = self.graph[n][u]['edge_id'],
-                            way_id = self.graph[n][u]['way_id'],
-                            order = u < v,
-                            geometry =
-                                list(self.inner_edge_geometry(u,n)) +
-                                [self.graph.node[n]['geometry']] +
-                                list(self.inner_edge_geometry(n,v)))
-        self.graph.remove_node(n)
-
-    def compress(self):
-        for n in self.graph.nodes():
-            adj = self.graph.neighbors(n)
-            if len(adj) == 2:
-                u, v = adj[0], adj[1]
-                if self.graph.has_edge(u,v):
-                    continue
-                if self.graph[n][u]['edge_id'] > self.graph[n][v]['edge_id']:
-                    u, v = v, u
-                if self.graph[n][u]['way_id'] == self.graph[n][v]['way_id']:
-                    self.node_collapse(u, n, v)
 
     def build_spatial_node_index(self):
         self.spatial_node_idx = rtree.index.Index()
@@ -128,8 +96,8 @@ class SpatialGraph:
 
     def build_spatial_edge_index(self):
         self.spatial_edge_idx = rtree.index.Index()
-        for k,(i,j) in enumerate(self.graph.edges_iter()):
-            self.spatial_edge_idx.insert(k, sg.LineString(self.edge_geometry(i, j)).bounds, obj=(i,j))
+        for i,edge in enumerate(self.graph.edges_iter(keys=True)):
+            self.spatial_edge_idx.insert(i, self.edge_geometry(edge).bounds, obj=edge)
 
     def import_geobase(self, data, distance_threshold = 1.0):
         for segment in data:
@@ -160,23 +128,11 @@ class SpatialGraph:
             last_node = find_node(last_geom, first_node)
 
             self.graph.add_edge(first_node, last_node,
-                                geometry = [sg.Point(x) for x in segment['geometry'].coords[1:-1]],
                                 order = first_node < last_node,
                                 **properties)
-
-    def import_osm(self, data):
-        for i, n in data['nodes'].iteritems():
-            self.graph.add_node(i, geometry = sg.Point(n['geometry']))
-        idx = 0
-        for k, w in data['ways'].iteritems():
-            self.metadata[i] = w['tags']
-            for i,j in utility.pairwise(w['nodes']):
-                self.graph.add_edge(i, j,
-                                    way_id = k,
-                                    edge_id = idx,
-                                    order = i < j,
-                                    geometry = [])
-                idx += 1
+            k = self.graph.number_of_edges(first_node, last_node)-1
+            self.geometry[first_node, last_node, k] = sg.LineString(segment['geometry'].coords)
+            self.geometry[last_node, first_node, k] = sg.LineString(reversed(segment['geometry'].coords))
 
     def make_shp(self):
         sf = shapefile.Writer(shapefile.POLYLINE)
@@ -186,8 +142,8 @@ class SpatialGraph:
         sf.field('way_id')
         sf.field('id')
         idx = 0
-        for u, v, p in self.graph.edges(data=True):
-            line = sg.mapping(sg.LineString([self.edge_geometry(u,v)]))
+        for u, v, p, k in self.graph.edges(data=True,keys=True):
+            line = sg.mapping(self.edge_geometry((u,v,k)))
             sf.line(parts=[line['coordinates']])
             sf.record(first= u, last= v, way_id= p['way_id'], id= p['edge_id'])
             idx += 1
@@ -196,8 +152,8 @@ class SpatialGraph:
     def make_geojson(self, epsg):
         features = []
         idx = 0
-        for u, v, p in self.graph.edges_iter(data=True):
-            line = sg.mapping(sg.LineString(list(self.edge_geometry(u,v))))
+        for u, v, p, k in self.graph.edges_iter(data=True, keys=True):
+            line = sg.mapping(self.edge_geometry((u,v,k)))
             feature = geojson.Feature(
                 geometry = line,
                 properties = {'first': u, 'last': v})
@@ -207,16 +163,6 @@ class SpatialGraph:
         fc['crs'] = {'type': 'EPSG', 'properties': {'code': epsg}}
         return fc
 
-    def export_index(self):
-        index = {'neighbors':{}, 'way':{}, 'metadata':{}}
-        for n in self.graph.node_iter():
-            index['way'][n] = []
-        for i,j,p in self.graph.edges_iter(data=True):
-            index['way'][i].append(p['edge_id'])
-            index['way'][j].append(p['edge_id'])
-            index['metadata'][p['way_id']] = self.metadata[p['way_id']]
-        return index
-
     def __getstate__(self):
         odict = self.__dict__.copy()
         if 'spatial_node_idx' in odict:
@@ -225,6 +171,6 @@ class SpatialGraph:
             del odict['spatial_edge_idx']
         return odict
 
-    def __setstate__(self, dict):
-        self.__dict__.update(dict)
+    def __setstate__(self, odict):
+        self.__dict__.update(odict)
 

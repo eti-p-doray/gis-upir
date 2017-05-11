@@ -3,8 +3,8 @@ import pickle, geojson, json, csv
 import math
 import shapely.geometry as sg
 
-from spat.trajectory import smooth
-from spat.trajectory import load
+from spat.trajectory import smooth, load
+from spat import utility
 
 
 def make_geojson(trajectories):
@@ -30,11 +30,13 @@ def main(argv):
     as well as filtering out broken trajectories.
     """, formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('-i', '--ifile', default = 'data/bike_path/Chunk_1_mm.csv',
-                        help='input data file.');
+                        help='input data file.')
     parser.add_argument('-o', '--ofile', default = 'data/bike_path/smoothed.pickle',
-                        help='output pickle file to export serialized result');
+                        help='output pickle file to export serialized result')
     parser.add_argument('--geojson',
-                        help='output geojson file to export smoothed geometry');
+                        help='output geojson file to export smoothed geometry')
+    parser.add_argument('--max', type=int, default=None,
+                        help='maximum number of trajectory that will be processed')
 
     args = parser.parse_args()
     print('input file:', args.ifile)
@@ -45,7 +47,7 @@ def main(argv):
     smoothed_trajectories = []
     with open(args.ifile, 'r') as f:
       input_data = csv.reader(f)
-      for trajectory in load.load_csv(input_data):
+      for trajectory in utility.take(load.load_csv(input_data), args.max):
         smoothed_trajectory = smooth.smooth_state(trajectory)
         if smoothed_trajectory is not None:
           smoothed_trajectories.append(smoothed_trajectory)

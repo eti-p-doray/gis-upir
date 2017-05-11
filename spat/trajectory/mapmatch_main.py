@@ -5,7 +5,7 @@ import numpy
 import pyproj
 
 from spat.trajectory import mapmatch, smooth, load, features
-from spat import raster
+from spat import raster, utility
 
 
 def make_geojson(trajectories, graph):
@@ -20,13 +20,13 @@ def make_geojson(trajectories, graph):
             features.append(geojson.Feature(
                 geometry = sg.mapping(sg.LineString(mm)),
                 properties = {'type':'mm'}))
-        """for node in trajectory['node']:
+        for node in trajectory['node']:
             if (isinstance(node, mapmatch.LinkedNode) or isinstance(node, mapmatch.ForwardingNode) or
                 isinstance(node, mapmatch.FloatingNode) or isinstance(node, mapmatch.JumpingNode)):
                 features.append(geojson.Feature(
                     geometry= sg.mapping(sg.Point(node.coordinates())),
                     properties= {'type': node.__class__.__name__}
-                ))"""
+                ))
 
     fc = geojson.FeatureCollection(features)
     fc['crs'] = {'type': 'EPSG', 'properties': {'code': 2150}}
@@ -52,6 +52,8 @@ def main(argv):
                         help='output geojson file to export constrained geometry')
     parser.add_argument('--factor', default=15.0, type=float,
                         help='heuristic factor. Higher is more greedy')
+    parser.add_argument('--max', type=int, default=None,
+                        help='maximum number of trajectory that will be processed')
 
     args = parser.parse_args()
     print('input file:', args.ifile)
@@ -93,7 +95,7 @@ def main(argv):
         end_elevation = elevation.at(end, dst_proj)
         cost = numpy.dot(features.link_features(length, start_elevation, end_elevation, link, graph), link_weights)
         if link is None:
-            cost += 200.0 * length
+            cost += 100.0 * length
         return cost
 
     def intersection_cost(a, b):
@@ -102,7 +104,7 @@ def main(argv):
     matched = []
     with open(args.ifile, 'r') as f:
         input_data = csv.reader(f)
-        for i, trajectory in zip(range(0, 5), load.load_csv(input_data)):
+        for trajectory in utility.take(load.load_csv(input_data), args.max):
             smoothed_trajectory = smooth.smooth_state(trajectory)
             if smoothed_trajectory is None:
                 continue

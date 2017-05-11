@@ -14,7 +14,7 @@ def make_geojson(trajectories, graph):
         bp = []
         for node in trajectory['ioc']:
             if isinstance(node, ioc.Node):
-                bp.extend(graph.edge_geometry(*node.edge))
+                bp.extend(graph.edge_geometry(node.edge).coords)
         if len(bp) > 1:
             feature.append(geojson.Feature(
                 geometry = sg.mapping(sg.LineString(bp)),

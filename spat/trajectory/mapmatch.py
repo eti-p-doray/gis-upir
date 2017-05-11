@@ -86,7 +86,7 @@ class Link:
     def __init__(self, graph: facility.SpatialGraph, transition, edge):
         self.segments = []
         self.length = 0.0
-        for coord in utility.pairwise(graph.edge_geometry(*edge)):
+        for coord in utility.pairwise(graph.edge_geometry(edge).coords):
             #TODO: actually estimate link width and offset based on type and direction
             segment = Segment(edge, coord, 0.0, 2.0, self.length, transition)
             self.segments.append(segment)
@@ -138,18 +138,17 @@ class ProjectionManager:
             def visit_edge(i, edge):
                 self.state_table[i][edge] = []
                 link = self.link_manager.at(edge)
-                for offset, segment in enumerate(utility.pairwise(self.graph.edge_geometry(u, v))):
+                for offset, segment in enumerate(utility.pairwise(self.graph.edge_geometry(edge).coords)):
                     if utility.intersect(sg.LineString(segment).bounds, bounds):
-                        link = self.link_manager.at(edge)
                         cost, constrained_state, projected_state = link[offset].project(self.states[i].copy())
                         projections.append((edge, offset, constrained_state, projected_state))
                         projection_costs.append(cost)
 
             self.state_table[i] = {}
             for x in self.graph.search_edge_intersection(bounds):
-                u, v = x.object
-                visit_edge(i, (u, v))
-                visit_edge(i, (v, u))
+                u, v, key = x.object
+                visit_edge(i, (u, v, key))
+                visit_edge(i, (v, u, key))
 
             k = min(5, len(projections))
             indices = numpy.argpartition(projection_costs, k-1)[0:k]
@@ -164,9 +163,8 @@ class ProjectionManager:
     def search_edge(self, i, edge):
         if edge not in self.edge_table[i]:
             self.edge_table[i][edge] = []
-            u, v = edge
             bounds = ellipse_bounds(self.states[i], 40.0)
-            for offset, segment in enumerate(utility.pairwise(self.graph.edge_geometry(u, v))):
+            for offset, segment in enumerate(utility.pairwise(self.graph.edge_geometry(edge).coords)):
                 if utility.intersect(sg.LineString(segment).bounds, bounds):
                     self.edge_table[i][edge].append(offset)
 
@@ -246,7 +244,7 @@ class LinkedNode:
 
         distance = self.link.length - self.segment.distance
         for next_edge in graph.adjacent(self.edge[1]):
-            u, v = next_edge
+            u, v, k = next_edge
             if (v, u) != self.edge:
                 yield ForwardingNode.Key(self, distance, next_edge, self.next_projected_state)
 
@@ -330,8 +328,8 @@ class ForwardingNode:
 
         distance = self.distance + self.link.length
         for next_edge in graph.adjacent(self.edge[1]):
-            u, v = next_edge
-            if (v, u) != self.edge:
+            u, v, k = next_edge
+            if (v, u, k) != self.edge:
                 yield ForwardingNode.Key(self.anchor, distance, next_edge, self.projected_state)
 
     def distance_to(self, other):
@@ -388,7 +386,7 @@ class FloatingNode:
             return None, self.idx
 
     def cost(self):
-        return 50.0
+        return 0.0
 
     def coordinates(self):
         return self.state.x[0:2]
@@ -456,8 +454,8 @@ class JumpingNode:
         yield FloatingNode.Key(self.anchor.idx + 1)
 
         for edge, offsets in projections.project_state(self.anchor.idx+1, state=self.anchor.constrained_state).items():
-            u, v = edge
-            if (u, v) == self.anchor.edge or (v, u) == self.anchor.edge:
+            u, v, k = edge
+            if (u, v, k) == self.anchor.edge or (v, u, k) == self.anchor.edge:
                 continue
             for offset in offsets:
                 yield LinkedNode.Key(edge, offset, self.anchor.idx+1)
@@ -635,12 +633,15 @@ def solve(trajectory, graph, distance_cost_fcn, intersection_cost_fcn, greedy_fa
                                handicap_fcn=handicap, state_projection=project)
 
     start_time = time.time()
-    path = chain.find_best(InitialNode(), FinalNode(), heuristic, priority_threshold=200000.0, progress_fcn=progress)
+    path = chain.find_best(InitialNode(), FinalNode(), heuristic,
+                           priority_threshold=100000.0, progress_fcn=progress, max_visited=len(states) * 40)
     logging.info("elapsed_time: %.4f", time.time() - start_time)
     if path is None:
         logging.warning("trashing %s due to incomplete mapmatch", trajectory['id'])
         return None
 
-    return {'segment': list(format_path([project(key) for key in path])),
+    nodes = list([project(key) for key in path])
+    return {'segment': list(format_path(nodes)),
             'id': trajectory['id'],
+            'node': nodes,
             'count': len(trajectory['state'])}

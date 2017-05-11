@@ -92,7 +92,7 @@ def extract_turn(trajectory, graph, predicate):
             segment1.edge is not None and segment1.begin.attached):
 
             assert segment0.edge[1] == segment1.edge[0]
-            angle = graph.turn_angle(segment0.edge[0], segment0.edge[1], segment1.edge[1])
+            angle = graph.turn_angle(segment0.edge, segment1.edge)
             if predicate(math.degrees(angle)):
                 count += 1
     return count
@@ -124,7 +124,7 @@ def link_type_predicate(graph, predicate):
     def fn(link):
         if link is None:
             return False
-        return predicate(graph.edge(*link)['type'])
+        return predicate(graph.edge(link)['type'])
     return fn
 
 
@@ -132,7 +132,7 @@ def link_circulation(graph):
     def fn(link):
         if link is None:
             return False
-        return not graph.valid_circulation(*link)
+        return not graph.valid_circulation(link)
     return fn
 
 
@@ -190,9 +190,9 @@ def intersection_collection(collection):
     return fn
 
 
-def link_features(length, start_elevation, end_elevation, link, graph):
-    if link is not None:
-        type = graph.edge(*link)['type']
+def link_features(length, start_elevation, end_elevation, edge, graph):
+    if edge is not None:
+        type = graph.edge(edge)['type']
         edge_predicates = [
             lambda link: True,
             any_cycling_link,
@@ -213,14 +213,13 @@ def link_features(length, start_elevation, end_elevation, link, graph):
     if length > 0.0:
         slope = (end_elevation - start_elevation) / length
 
-    return numpy.array(list(link_types) + [link_circulation(graph)(link), slope**2, slope**3]) * length
+    return numpy.array(list(link_types) + [link_circulation(graph)(edge), slope**2, slope**3]) * length
 
 
 def intersection_features(a, b, graph, collections):
     assert a[1] == b[0]
-    u, v = a
-    v, k = b
-    angle = graph.turn_angle(u, v, k)
+    _, v, _ = a
+    angle = graph.turn_angle(a, b)
     node_predicates = [
         lambda node: True,
         intersection_collection(collections['end_of_facility']),

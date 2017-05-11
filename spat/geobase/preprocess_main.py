@@ -60,7 +60,7 @@ def main(argv):
     parser.add_argument('-o', '--ofile',
                         default='data/mtl_geobase/mtl.pickle',
                         help="""output file containing a serialization of the graph. 
-      Supported formats include *.json, *.csv""");
+      Supported formats include *.json, *.csv""")
 
     args = parser.parse_args()
     print('output file:', args.ofile)

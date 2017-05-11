@@ -45,11 +45,12 @@ class BoundNode:
         self.coord = sg.Point(coord)
         self.edges = {}
         for x in graph.search_edge_nearest(utility.bb_buffer(self.coord, 5.0), 10):
-            u, v = x.object
-            link = sg.LineString(graph.edge_geometry(u, v))
+            edge = x.object
+            u, v, k = edge
+            link = graph.edge_geometry(edge)
             projection = link.project(self.coord)
-            self.edges[u, v] = (projection, link.length)
-            self.edges[v, u] = (link.length - projection, link.length)
+            self.edges[u, v, k] = (projection, link.length)
+            self.edges[v, u, k] = (link.length - projection, link.length)
 
     def __eq__(self, other):
         return isinstance(other, self.__class__) and self.final == other.final
@@ -72,8 +73,7 @@ class BoundNode:
 
     def cost_to(self, other, graph: facility.SpatialGraph, link_cost_fcn, intersection_cost_fcn):
         assert isinstance(other, Node)
-        u, v = other.edge
-        geometry = sg.LineString(graph.edge_geometry(u, v))
+        geometry = graph.edge_geometry(other.edge)
         projection = geometry.project(self.coord)
         return link_cost_fcn(geometry.distance(self.coordinates()), self.coord, geometry.interpolate(projection), None)
 
@@ -101,17 +101,16 @@ class Node:
             yield goal
             return
         for next_edge in graph.adjacent(self.edge[1]):
-            u, v = next_edge
             if goal.on(next_edge):
                 yield Node(next_edge, 0.0, goal.edges[next_edge][0])
             else:
-                yield Node(next_edge, 0.0, sg.LineString(graph.edge_geometry(u, v)).length)
+                yield Node(next_edge, 0.0, graph.edge_geometry(next_edge).length)
 
     def length(self):
         return self.end - self.begin
 
     def cost(self, graph: facility.SpatialGraph, link_cost_fcn):
-        geometry = sg.LineString(graph.edge_geometry(*self.edge))
+        geometry = graph.edge_geometry(self.edge)
         return link_cost_fcn(self.length(), geometry.interpolate(self.begin), geometry.interpolate(self.end), self.edge)
 
     def cost_to(self, other, graph: facility.SpatialGraph, link_cost_fcn, intersection_cost_fcn):
@@ -132,7 +131,7 @@ def best_path(weights, trajectory, graph: facility.SpatialGraph, intersection_co
         end_elevation = elevation.at(end, dst_proj)
         cost = numpy.dot(features.link_features(length, start_elevation, end_elevation, link, graph), link_weights)
         if link is None:
-            cost += 200.0 * length
+            cost += 100.0 * length
         return cost
 
     def intersection_cost(a, b):

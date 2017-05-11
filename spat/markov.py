@@ -35,7 +35,9 @@ class MarkovGraph:
         self.transition_cost_fcn = transition_cost_fcn
         self.handicap_fcn = handicap_fcn
 
-    def find_best(self, origin, goal, heuristic_fcn, priority_threshold=math.inf, progress_fcn=None):
+    def find_best(self, origin, goal, heuristic_fcn,
+                  priority_threshold=math.inf, progress_fcn=None,
+                  max_visited=None):
 
         queue = PriorityQueue()
 
@@ -55,6 +57,7 @@ class MarkovGraph:
         visited = {}
         progress_table = {}
 
+        visited_count = 0
         current_key = None
         while not queue.empty():
             current_key = queue.get()
@@ -63,6 +66,10 @@ class MarkovGraph:
 
             if current_key in visited:
                 continue
+
+            visited_count += 1
+            if visited_count >= max_visited:
+                break
 
             if progress_fcn:
                 step, progress = progress_fcn(current_key)
