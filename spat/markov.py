@@ -60,8 +60,9 @@ class MarkovGraph:
         visited = {}
         progress_table = {}
 
-        visited_count = 0
         current_key = None
+
+        logging.debug("Max Visited: %d", max_visited)
         while not queue.empty():
             current_key = queue.get()
             if current_key == goal:
@@ -70,19 +71,18 @@ class MarkovGraph:
             if current_key in visited:
                 continue
 
-            visited_count += 1
-            if visited_count >= max_visited:
-                break
-
             if progress_fcn:
                 step, progress = progress_fcn(current_key)
                 if step in progress_table and progress < progress_table[step]:
                     continue
                 progress_table[step] = progress
             visited[current_key] = True
+            if max_visited is not None and len(visited) > max_visited:
+                break
 
             current_node = self.state_projection(current_key)
 
+            logging.debug("Visited: %d", len(visited))
             logging.debug("Visit: %s", str(current_node))
 
             base_cost = cost_table[current_key][0]

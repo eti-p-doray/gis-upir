@@ -121,10 +121,10 @@ class ProjectionManager:
         self.link_manager = geometry
         self.projection_table = {}
         self.state_table = {}
-        self.edge_table = {}
+        #self.edge_table = {}
 
-        for i, state in enumerate(states):
-            self.edge_table[i] = {}
+        #for i, state in enumerate(states):
+        #    self.edge_table[i] = {}
 
     def project_state(self, i, quantile=6.0, state=None):
         if i not in self.state_table:
@@ -159,7 +159,7 @@ class ProjectionManager:
 
         return self.state_table[i]
 
-    def search_edge(self, i, edge):
+    """def search_edge(self, i, edge):
         if edge not in self.edge_table[i]:
             self.edge_table[i][edge] = []
             bounds = ellipse_bounds(self.states[i], 40.0)
@@ -167,7 +167,16 @@ class ProjectionManager:
                 if utility.intersect(sg.LineString(segment).bounds, bounds):
                     self.edge_table[i][edge].append(offset)
 
-        return self.edge_table[i][edge]
+        return self.edge_table[i][edge]"""
+
+    def search_edge(self, i, edge, offset):
+        best_cost = math.inf
+        for offset in range(offset, len(self.link_manager.at(edge))):
+            cost, _, _ = self.at(i, edge, offset)
+            if cost > best_cost:
+                break
+            yield offset
+            best_cost = cost
 
     def at(self, i, edge, offset):
         if (i, edge, offset) not in self.projection_table:
@@ -236,9 +245,9 @@ class LinkedNode:
             yield FinalNode()
             return
 
-        for offset in projections.search_edge(self.idx + 1, self.edge):
-            if offset >= self.offset:
-                yield LinkedNode.Key(self.edge, offset, self.idx + 1)
+        for offset in projections.search_edge(self.idx + 1, self.edge, self.offset):
+            yield LinkedNode.Key(self.edge, offset, self.idx + 1)
+
         yield JumpingNode.Key(self)
 
         distance = self.link.length - self.segment.distance
@@ -322,7 +331,7 @@ class ForwardingNode:
         return self.link[0].origin
 
     def adjacent_nodes(self, states, projections: ProjectionManager, graph: facility.SpatialGraph, geometry: LinkManager):
-        for offset in projections.search_edge(self.anchor.idx + 1, self.edge):
+        for offset in projections.search_edge(self.anchor.idx + 1, self.edge, 0):
             yield LinkedNode.Key(self.edge, offset, self.anchor.idx + 1)
 
         distance = self.distance + self.link.length
@@ -452,7 +461,7 @@ class JumpingNode:
     def adjacent_nodes(self, states, projections: ProjectionManager, graph: facility.SpatialGraph, geometry: LinkManager):
         yield FloatingNode.Key(self.anchor.idx + 1)
 
-        for edge, offsets in projections.project_state(self.anchor.idx+1, state=self.anchor.constrained_state).items():
+        for edge, offsets in projections.project_state(self.anchor.idx+1).items():
             u, v, k = edge
             if (u, v, k) == self.anchor.edge or (v, u, k) == self.anchor.edge:
                 continue
