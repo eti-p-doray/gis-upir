@@ -78,12 +78,12 @@ class SpatialGraph:
         _, v, _ = e1
 
         link0 = self.edge_geometry(e1)
-        p0 = link0.coords[-1]
+        p0 = link0.coords[-2]
 
         p1 = utility.point_to_vec(self.graph.node[v]['geometry'])
 
         link1 = self.edge_geometry(e2)
-        p2 = link1.coords[0]
+        p2 = link1.coords[1]
 
         v0 = numpy.array(p1) - numpy.array(p0)
         v1 = numpy.array(p2) - numpy.array(p1)
