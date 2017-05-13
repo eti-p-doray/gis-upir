@@ -109,7 +109,8 @@ class MarkovGraph:
                 handicap_cost = self.handicap_fcn(next_node)
                 new_cost = base_cost + state_cost + transition_cost
 
-                #if (new_cost == math.inf or
+                if new_cost == math.inf:
+                    continue
                 #    (next_node in cost_table and new_cost + handicap_cost >= cost_table[next_key][1])):
                 #    continue
 
