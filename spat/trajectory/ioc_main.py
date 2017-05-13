@@ -97,6 +97,9 @@ def main(argv):
             feature['length_collector'],
             feature['length_highway'],
             feature['length_local'],
+            feature['length_inverse'],
+            feature['elev_m2'],
+            feature['elev_m3'],
             feature['left_turn'],
             feature['right_turn'],
             feature['intersections'],
@@ -107,20 +110,18 @@ def main(argv):
         ]), trajectory)
         data.append(example)
 
-    weights = numpy.array([
+    """weights = numpy.array([
         -1.28196656,   1.77788516,   5.3258071,    5.33732081,   5.28143121,
         19.11296935,  26.64963663,   7.24787299,   7.20067051,   7.14238749,
         7.20586499,   2.90069485,   3.9690854,   -1.47872437,  26.92730463,
-        5.55673258,  -2.17199329,  15.23823839])
-
-    weights *= len(mm) * len(mm)
-    print(weights)
+        5.55673258,  -2.17199329,  15.23823839])"""
+    weights = numpy.ones(21)
 
     weights = ioc.inverse_optimal_control(
         data,
         lambda param, examples: ioc.estimate_gradient(param, examples, graph,
                                                       intersection_collections, elevation, dst_proj), weights,
-        0.01, 0.1, 2)
+        0.01, 0.1, 10)
 
     score = numpy.zeros(weights.shape)
     for i, trajectory in enumerate(mm):

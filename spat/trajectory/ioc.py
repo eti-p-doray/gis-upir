@@ -127,8 +127,8 @@ def best_path(weights, trajectory, graph: facility.SpatialGraph, intersection_co
     intersection_weights = weights[14:21]
 
     def distance_cost(length, start, end, link):
-        start_elevation = elevation.at(start, dst_proj)
-        end_elevation = elevation.at(end, dst_proj)
+        start_elevation = elevation.at((start.x, start.y), dst_proj)
+        end_elevation = elevation.at((end.x, end.y), dst_proj)
         cost = numpy.dot(features.link_features(length, start_elevation, end_elevation, link, graph), link_weights)
         if link is None:
             cost += 100.0 * length
@@ -160,13 +160,17 @@ def best_path(weights, trajectory, graph: facility.SpatialGraph, intersection_co
     feature = numpy.zeros(weights.shape)
     for node in path:
         if isinstance(node, Node):
-            geometry = sg.LineString(graph.edge_geometry(*node.edge))
-            feature[0:11] += features.link_features(node.length(),
-                                                    geometry.interpolate(node.begin),
-                                                    geometry.interpolate(node.end), node.edge, graph)
+            geometry = graph.edge_geometry(node.edge)
+            start = geometry.interpolate(node.begin)
+            end = geometry.interpolate(node.end)
+            start_elevation = elevation.at((start.x, start.y), dst_proj)
+            end_elevation = elevation.at((end.x, end.y), dst_proj)
+            feature[0:14] += features.link_features(node.length(),
+                                                    start_elevation, end_elevation,
+                                                    node.edge, graph)
     for a, b in utility.pairwise(path):
         if isinstance(a, Node) and isinstance(b, Node):
-            feature[11:18] += features.intersection_features(a.edge, b.edge, graph, intersection_collections)
+            feature[14:21] += features.intersection_features(a.edge, b.edge, graph, intersection_collections)
 
     return path, feature
 
@@ -180,7 +184,9 @@ def estimate_gradient(param, example, graph: facility.SpatialGraph, intersection
     feature = feature_expectation(param, example[1], graph, intersection_collections, elevation, dst_proj)
     if feature is None:
         return None
-    logging.info("%s, %s", str(numpy.dot(param, feature)), str(numpy.dot(param, example[0])))
-    if numpy.dot(param, feature) < numpy.dot(param, example[0]) / 2.0:
-        return None # this example is too bad
-    return numpy.divide(example[0] - feature, example[0] + 1.0)
+    logging.info("example: %s", str(example[0]))
+    logging.info("feature: %s", str(feature))
+    #logging.info("%s, %s", str(numpy.dot(param, feature)), str(numpy.dot(param, example[0])))
+    #if numpy.dot(param, feature) < numpy.dot(param, example[0]) / 2.0:
+    #    return None # this example is too bad
+    return example[0] - feature#numpy.divide(example[0] - feature, example[0] + 1.0)
