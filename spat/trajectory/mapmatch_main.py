@@ -21,13 +21,13 @@ def make_geojson(trajectories, graph):
             features.append(geojson.Feature(
                 geometry = sg.mapping(sg.LineString(mm)),
                 properties = {'type':'mm'}))
-        for node in trajectory['node']:
+        """for node in trajectory['node']:
             if (isinstance(node, mapmatch.LinkedNode) or isinstance(node, mapmatch.ForwardingNode) or
                 isinstance(node, mapmatch.FloatingNode) or isinstance(node, mapmatch.JumpingNode)):
                 features.append(geojson.Feature(
                     geometry= sg.mapping(sg.Point(node.coordinates())),
                     properties= {'type': node.__class__.__name__}
-                ))
+                ))"""
 
     fc = geojson.FeatureCollection(features)
     fc['crs'] = {'type': 'EPSG', 'properties': {'code': 2150}}
@@ -61,7 +61,7 @@ def main(argv):
     print('facility:', args.facility)
     print('output file:', args.ofile)
 
-    logging.basicConfig(level=logging.DEBUG)
+    logging.basicConfig(level=logging.INFO)
 
     with open(args.facility, 'rb') as f:
         graph = pickle.load(f)
@@ -69,12 +69,12 @@ def main(argv):
     graph.build_spatial_node_index()
 
     link_weights = numpy.array([
-        1.0,   0.0,   0.0,    0.0,   0.0,
-        0.0,  0.0,   0.0,   0.0,   0.0,
-        0.0, 0.0, 0.0, 0.0])
+        2.0,   0.0,   0.0,    0.0,   0.0,
+        0.0,  1.0,   1.0,   1.0,   1.0,
+        1.0, 0.0, 0.0, 0.0])
     intersection_weights = numpy.array([
-        1.0,   0.0,   0.0,  0.0,
-        0.0,  0.0,  0.0])
+        1.0,   1.0,   1.0,  1.0,
+        1.0,  1.0,  1.0])
 
     intersection_collections = {
         'end_of_facility': features.match_intersections(
@@ -96,7 +96,7 @@ def main(argv):
         end_elevation = elevation.at(end, dst_proj)
         cost = numpy.dot(features.link_features(length, start_elevation, end_elevation, link, graph), link_weights)
         if link is None:
-            cost += 100.0 * length
+            cost += 30.0 * length
         return cost
 
     def intersection_cost(a, b):

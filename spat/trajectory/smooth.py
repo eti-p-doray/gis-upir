@@ -66,4 +66,37 @@ def smooth_state(trajectory):
         if determinant > 0.0 and math.log10(determinant) > 5*next_state.P.shape[0]:
             logging.warning("trashing %s due to missing data", trajectory['id'])
             return None
-    return trajectory
+
+    previous_state = None
+    for i, state in enumerate(trajectory['state']):
+        if previous_state is not None:
+          y = numpy.concatenate((previous_state.x[0:2], numpy.zeros(2)))
+          R = Q
+          R[0:2,0:2] += previous_state.P[0:2,0:2]
+          l = state.measurment_update(y, numpy.identity(4), R)
+          if l > 1.04:
+              break
+        previous_state = state
+
+    logging.warning("starting trajectory at %d", i)
+    if i > 0:
+      trajectory['state'] = trajectory['state'][i:]
+
+    next_state = None
+    for i, state in enumerate(reversed(trajectory['state'])):
+        if next_state is not None:
+            y = numpy.concatenate((next_state.x[0:2], numpy.zeros(2)))
+            R = Q
+            R[0:2,0:2] += next_state.P[0:2,0:2]
+            l = state.measurment_update(y, numpy.identity(4), R)
+            if l > 1.04:
+                break
+        next_state = state
+
+    logging.warning("ending trajectory at %d", i)
+    if i > 0:
+      trajectory['state'] = trajectory['state'][:-i]
+
+    if len(trajectory['state']) >= 2:
+        return trajectory
+    return None

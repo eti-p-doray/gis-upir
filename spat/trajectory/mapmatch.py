@@ -131,6 +131,7 @@ class ProjectionManager:
             if state is None:
                 state = self.states[i]
 
+            center = utility.bb_buffer(sg.Point(state.x[0:2]), 0.0)
             bounds = ellipse_bounds(state, quantile)
             projections = []
             projection_costs = []
@@ -144,7 +145,7 @@ class ProjectionManager:
                         projection_costs.append(cost)
 
             self.state_table[i] = {}
-            for x in self.graph.search_edge_nearest(bounds, 5):
+            for x in self.graph.search_edge_nearest(center, 5):
                 u, v, key = x.object
                 visit_edge(i, (u, v, key))
                 visit_edge(i, (v, u, key))
@@ -642,7 +643,7 @@ def solve(trajectory, graph, distance_cost_fcn, intersection_cost_fcn, greedy_fa
 
     start_time = time.time()
     path = chain.find_best(InitialNode(), FinalNode(), heuristic,
-                           priority_threshold=100000.0, progress_fcn=progress, max_visited=len(states) * 40)
+                           priority_threshold=10000.0, progress_fcn=progress, max_visited=len(states) * 20)
     logging.info("elapsed_time: %.4f", time.time() - start_time)
     if path is None:
         logging.warning("trashing %s due to incomplete mapmatch", trajectory['id'])
@@ -651,5 +652,5 @@ def solve(trajectory, graph, distance_cost_fcn, intersection_cost_fcn, greedy_fa
     nodes = list([project(key) for key in path])
     return {'segment': list(format_path(nodes)),
             'id': trajectory['id'],
-            'node': nodes,
+            #'node': nodes,
             'count': len(trajectory['state'])}
