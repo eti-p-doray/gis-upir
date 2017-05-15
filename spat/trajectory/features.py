@@ -1,281 +1,306 @@
-import sys, getopt, argparse, fnmatch
-import pickle, csv, geojson, json, math
-import numpy as np
+import logging
+import math
 import itertools
-import shapefile, rtree
-import pyproj as proj
-
-import spat.raster as raster
-from spat.spatial_graph import SpatialGraph
-from spat.utility import *
-from spat.stats import *
-
-# Note: importing shapely before osgeo triggers an Import error; _GEOSArea not found.
+import numpy
+import shapefile
+import rtree
+import pyproj
 import shapely.geometry as sg
-import scipy.stats
+
+from spat import utility, raster
+
 
 class RegionPartition:
-  def __init__(self, filename):
-    sf = shapefile.Reader(filename);
+    def __init__(self, filename):
+        sf = shapefile.Reader(filename)
 
-    self.regions = {}
-    self.spatial_idx = rtree.index.Index()
-    for s, r in zip(sf.iterShapes(), sf.iterRecords()):
-      ring = sg.Polygon(s.points)
-      self.spatial_idx.insert(r[0], ring.bounds)
-      self.regions[r[0]] = ring
+        self.regions = {}
+        self.spatial_idx = rtree.index.Index()
+        for s, r in zip(sf.iterShapes(), sf.iterRecords()):
+            ring = sg.Polygon(s.points)
+            self.spatial_idx.insert(r[0], ring.bounds)
+            self.regions[r[0]] = ring
 
-  def fit(self, point):
-    #print point.bounds
-    neighbors = self.spatial_idx.intersection(point.bounds)
-    for i in neighbors:
-      #print '  ', i, self.regions[i]
-      if (self.regions[i].contains(point)):
-        return i
-    return None
+    def fit(self, point):
+        neighbors = self.spatial_idx.intersection(point.bounds)
+        for i in neighbors:
+            if self.regions[i].contains(point):
+                return i
+        return None
 
-def extract_length(trajectory, graph, predicate):
-  length = 0
-  for segment in trajectory['segment']:
-    if (predicate(segment['link'])):
-      if segment['link'] == None:
-        length += sg.LineString(segment['geometry']).length
-      else:
-        length += segment['bounds'][1][1] - segment['bounds'][0][1]
-  return length
+
+def extract_length(trajectory, predicate):
+    length = 0
+    for segment in trajectory['segment']:
+        if predicate(segment.edge):
+            if segment.edge is None:
+                length += sg.LineString(segment.geometry).length
+            else:
+                length += segment.end.projection - segment.begin.projection
+    return length
+
 
 def load_point_list(file):
-  sf = shapefile.Reader(file)
+    sf = shapefile.Reader(file)
 
-  for s, r in zip(sf.iterShapes(), sf.iterRecords()):
-    yield {'geometry': sg.Point(s.points[0])}
+    for s, r in zip(sf.iterShapes(), sf.iterRecords()):
+        yield {'geometry': sg.Point(s.points[0])}
+
 
 def load_discontinuity(file):
-  return load_point_list(file)
+    return load_point_list(file)
+
 
 def load_traffic_lights(file):
-  return load_point_list(file)
+    return load_point_list(file)
+
 
 def match_intersections(points, graph):
-  intersection_index = {}
-  for i, p in enumerate(points):
-    geom = p['geometry']
-    nearby = graph.node_intersection(bb_bounds(geom.x, geom.y, 2, 2));
+    intersection_index = {}
+    for i, p in enumerate(points):
+        geom = p['geometry']
+        nearby = graph.search_node_nearest(utility.bb_bounds(geom.x, geom.y, 2, 2), 3)
 
-    min_distance = np.inf
-    best_node = None
-    for node in nearby:
-      distance = graph.intersection(node).distance(geom)
-      if distance < min_distance:
-        min_distance = distance
-        best_node = node
-    if best_node not in intersection_index:
-      intersection_index[best_node] = []
-    intersection_index[best_node].append(i)
-  return intersection_index
+        min_distance = math.inf
+        best_node = None
+        for node in nearby:
+            distance = graph.node_geometry(node).distance(geom)
+            if distance < min_distance:
+                min_distance = distance
+                best_node = node
+        if best_node not in intersection_index:
+            intersection_index[best_node] = []
+        intersection_index[best_node].append(i)
+    return intersection_index
+
 
 def extract_intersection(trajectory, predicate):
-  count = 0
+    count = 0
 
-  for segment in trajectory['segment']:
-    if (segment['link'] != None and segment['bounds'][1][0] == True):
-      if predicate(segment['link'][1]):
-        count += 1
-  return count
+    for segment in trajectory['segment']:
+        if segment.edge is not None and segment.end.attached:
+            if predicate(segment.edge[1]):
+                count += 1
+    return count
+
 
 def extract_turn(trajectory, graph, predicate):
-  count = 0
+    count = 0
 
-  for segment0, segment1 in pairwise(trajectory['segment']):
-    if (segment0['link'] != None and segment0['bounds'][1][0] == True and
-        segment1['link'] != None and segment1['bounds'][0][0] == True):
+    for segment0, segment1 in utility.pairwise(trajectory['segment']):
+        if (segment0.edge is not None and segment0.end.attached and
+            segment1.edge is not None and segment1.begin.attached):
 
-      angle = graph.turn_angle((segment0['link'][0], 
-                                segment0['link'][1], 
-                                segment1['link'][1]))
-      if (predicate(math.degrees(angle))):
-        count += 1
-  return count
+            assert segment0.edge[1] == segment1.edge[0]
+            angle = graph.turn_angle(segment0.edge, segment1.edge)
+            if predicate(math.degrees(angle)):
+                count += 1
+    return count
 
-def extract_nodes(trajectory, graph):
-  for segment in trajectory['segment']:
-    if (segment['link'] != None and segment['bounds'][0][0] == True):
-      coord = graph.intersection(segment['link'][0])
-      yield (coord.x, coord.y)
-    else:
-      yield segment['geometry'][0]
-    yield trajectory['segment'][-1]['geometry'][-1]
+
+def extract_nodes(trajectory):
+    segments = trajectory['segment']
+    for segment in segments:
+        yield segment.geometry[0]
+    yield segments[-1].geometry[-1]
+
 
 def extract_elevation_stats(trajectory, graph, elevation):
-  dstProj = proj.Proj(init='epsg:4326')
-  stats = RunningStats()
-  for n1, n2 in pairwise(extract_nodes(trajectory, graph)):
-    e1 = elevation.at(n1, dstProj)
-    e2 = elevation.at(n1, dstProj)
-    d = sg.Point(n1).distance(sg.Point(n2))
-    stats.push(e1 - e2 / d, d)
-  return stats
+    dst_proj = pyproj.Proj(init='epsg:4326')
+    M2 = 0.0
+    M3 = 0.0
+    for n1, n2 in utility.pairwise(extract_nodes(trajectory)):
+        e1 = elevation.at(n1, dst_proj)
+        e2 = elevation.at(n2, dst_proj)
+        d = sg.Point(n1).distance(sg.Point(n2))
+        if d > 0.0:
+            slope = (e2 - e1) / d
+            M2 += (slope ** 2) * d
+            M3 += (slope ** 3) * d
+    return M2, M3
+
 
 def link_type_predicate(graph, predicate):
-  def fn(link):
-    if link == None:
-      return False
-    return predicate(graph.edge(link)['type'])
-  return fn
+    def fn(link):
+        if link is None:
+            return False
+        return predicate(graph.edge(link)['type'])
+    return fn
+
+
+def link_circulation(graph):
+    def fn(link):
+        if link is None:
+            return False
+        return not graph.valid_circulation(link)
+    return fn
+
 
 def any_cycling_link(link_type):
-  return link_type > 10
+    return link_type > 10
+
+
 def designated_roadway(link_type):
-  return link_type == 11
+    return link_type == 11
+
+
 def bike_lane(link_type):
-  return link_type == 13
+    return link_type == 13
+
+
 def seperate_cycling_link(link_type):
-  return link_type in {14, 15, 16}
+    return link_type in {14, 15, 16}
+
+
 def offroad_link(link_type):
-  return link_type == 17
+    return link_type == 17
+
+
 def other_road_type(link_type):
-  return link_type in {1, 2, 3, 4, 9}
+    return link_type in {1, 2, 3, 4, 9}
+
+
 def arterial_link(link_type):
-  return link_type in {6, 7}
+    return link_type in {6, 7}
+
+
 def collector_link(link_type):
-  return link_type == 5
+    return link_type == 5
+
+
 def highway_link(link_type):
-  return link_type == 8
+    return link_type == 8
+
+
 def local_link(link_type):
-  return link_type == 0
+    return link_type == 0
+
 
 def left_turn(angle):
-  return angle > 45.0
+    return angle > 45.0
+
+
 def right_turn(angle):
-  return angle < -45.0
+    return angle < -45.0
+
 
 def intersection_collection(collection):
-  def fn(node):
-    return node in collection
-  return fn
+    def fn(node):
+        return node in collection
+    return fn
+
+
+def link_features(length, start_elevation, end_elevation, edge, graph):
+    if edge is not None:
+        type = graph.edge(edge)['type']
+        edge_predicates = [
+            lambda link: True,
+            any_cycling_link,
+            designated_roadway,
+            bike_lane,
+            seperate_cycling_link,
+            offroad_link,
+            other_road_type,
+            arterial_link,
+            collector_link,
+            highway_link,
+            local_link,
+        ]
+        link_types = map(lambda pred: pred(type), edge_predicates)
+    else:
+        link_types = itertools.repeat(False, 11)
+    slope = 0.0
+    if length > 0.0:
+        slope = (end_elevation - start_elevation) / length
+
+    return numpy.array(list(link_types) + [link_circulation(graph)(edge), slope**2, slope**3]) * length
+
+
+def intersection_features(a, b, graph, collections):
+    assert a[1] == b[0]
+    _, v, _ = a
+    angle = graph.turn_angle(a, b)
+    node_predicates = [
+        lambda node: True,
+        intersection_collection(collections['end_of_facility']),
+        intersection_collection(collections['change_of_facility_type']),
+        intersection_collection(collections['intersections_disc']),
+        intersection_collection(collections['traffic_lights']),
+    ]
+    turn_predicates = [
+        left_turn,
+        right_turn
+    ]
+    return numpy.array(list(map(lambda pred: pred(math.degrees(angle)), turn_predicates)) +
+                       list(map(lambda pred: pred(v), node_predicates)))
 
 
 def extract_features(trajectories, graph):
-  end_of_facility = match_intersections(
-    load_discontinuity("data/discontinuity/end_of_facility"), graph)
-  change_of_facility_type = match_intersections(
-    load_discontinuity("data/discontinuity/change_of_facility_type"), graph)
-  intersections_disc = match_intersections(
-    load_discontinuity("data/intersections/intersections_on_bike_network_with_change_in_road_type"), graph)
-  traffic_lights = match_intersections(
-    load_traffic_lights("data/traffic_lights/All_lights"), graph)
-  elevation = raster.RasterImage("data/elevation/30n090w_20101117_gmted_min075.tif")
+    end_of_facility = match_intersections(
+        load_discontinuity("data/discontinuity/end_of_facility"), graph)
+    change_of_facility_type = match_intersections(
+        load_discontinuity("data/discontinuity/change_of_facility_type"), graph)
+    intersections_disc = match_intersections(
+        load_discontinuity("data/intersections/intersections_on_bike_network_with_change_in_road_type"), graph)
+    traffic_lights = match_intersections(
+        load_traffic_lights("data/traffic_lights/All_lights"), graph)
+    elevation = raster.RasterImage("data/elevation/30n090w_20101117_gmted_min075.tif")
 
-  partition = RegionPartition("data/partition/ZT2008_1631_v2b_region")
+    partition = RegionPartition("data/partition/ZT2008_1631_v2b_region")
 
-  features = {}
-  for trajectory in trajectories:
-    print trajectory['id']
+    features = {}
+    for trajectory in trajectories:
+        logging.info("extracting features for %s", trajectory['id'])
 
-    i = trajectory['id']
-    features[i] = {}
-    features[i]['length'] = extract_length(trajectory, graph, 
-      lambda link: True)
-    features[i]['length_cycling'] = extract_length(trajectory, graph, 
-      link_type_predicate(graph, any_cycling_link))
-    features[i]['length_designated_roadway'] = extract_length(trajectory, graph, 
-      link_type_predicate(graph, designated_roadway))
-    features[i]['length_bike_lane'] = extract_length(trajectory, graph, 
-      link_type_predicate(graph, bike_lane))
-    features[i]['length_seperate_cycling_link'] = extract_length(trajectory, graph, 
-      link_type_predicate(graph, seperate_cycling_link))
-    features[i]['length_offroad'] = extract_length(trajectory, graph, 
-      link_type_predicate(graph, offroad_link))
-    features[i]['length_other_road'] = extract_length(trajectory, graph, 
-      link_type_predicate(graph, other_road_type))
-    features[i]['length_arterial'] = extract_length(trajectory, graph, 
-      link_type_predicate(graph, arterial_link))
-    features[i]['length_collector'] = extract_length(trajectory, graph, 
-      link_type_predicate(graph, collector_link))
-    features[i]['length_highway'] = extract_length(trajectory, graph, 
-      link_type_predicate(graph, highway_link))
-    features[i]['length_local'] = extract_length(trajectory, graph, 
-      link_type_predicate(graph, local_link))
+        i = trajectory['id']
+        features[i] = {}
+        features[i]['length'] = extract_length(trajectory,
+                                               lambda link: True)
+        features[i]['length_cycling'] = extract_length(trajectory,
+                                                       link_type_predicate(graph, any_cycling_link))
+        features[i]['length_designated_roadway'] = extract_length(trajectory,
+                                                                  link_type_predicate(graph, designated_roadway))
+        features[i]['length_bike_lane'] = extract_length(trajectory,
+                                                         link_type_predicate(graph, bike_lane))
+        features[i]['length_seperate_cycling_link'] = extract_length(trajectory,
+                                                                     link_type_predicate(graph, seperate_cycling_link))
+        features[i]['length_offroad'] = extract_length(trajectory,
+                                                       link_type_predicate(graph, offroad_link))
+        features[i]['length_other_road'] = extract_length(trajectory,
+                                                          link_type_predicate(graph, other_road_type))
+        features[i]['length_arterial'] = extract_length(trajectory,
+                                                        link_type_predicate(graph, arterial_link))
+        features[i]['length_collector'] = extract_length(trajectory,
+                                                         link_type_predicate(graph, collector_link))
+        features[i]['length_highway'] = extract_length(trajectory,
+                                                       link_type_predicate(graph, highway_link))
+        features[i]['length_local'] = extract_length(trajectory,
+                                                     link_type_predicate(graph, local_link))
+        features[i]['length_inverse'] = extract_length(trajectory, link_circulation(graph))
 
-    features[i]['left_turn'] = extract_turn(trajectory, graph, left_turn)
-    features[i]['right_turn'] = extract_turn(trajectory, graph, right_turn)
+        features[i]['left_turn'] = extract_turn(trajectory, graph, left_turn)
+        features[i]['right_turn'] = extract_turn(trajectory, graph, right_turn)
 
-    features[i]['intersections'] = extract_intersection(trajectory, lambda link: True)
-    features[i]['end_of_facility'] = extract_intersection(trajectory, 
-      intersection_collection(end_of_facility))
-    features[i]['change_of_facility_type'] = extract_intersection(trajectory, 
-      intersection_collection(change_of_facility_type))
-    features[i]['intersections_disc'] = extract_intersection(trajectory, 
-      intersection_collection(intersections_disc))
-    features[i]['traffic_lights'] = extract_intersection(trajectory, 
-      intersection_collection(traffic_lights))
+        features[i]['intersections'] = extract_intersection(trajectory, lambda link: True)
+        features[i]['end_of_facility'] = extract_intersection(trajectory,
+                                                              intersection_collection(end_of_facility))
+        features[i]['change_of_facility_type'] = extract_intersection(trajectory,
+                                                                      intersection_collection(change_of_facility_type))
+        features[i]['intersections_disc'] = extract_intersection(trajectory,
+                                                                 intersection_collection(intersections_disc))
+        features[i]['traffic_lights'] = extract_intersection(trajectory,
+                                                             intersection_collection(traffic_lights))
 
+        partition_begin = partition.fit(sg.Point(trajectory['segment'][0].geometry[0]))
+        partition_end = partition.fit(sg.Point(trajectory['segment'][-1].geometry[-1]))
+        features[i]['partition'] = (partition_begin, partition_end)
 
-    partition_begin = partition.fit(sg.Point(trajectory['segment'][0]['geometry'][0]))
-    partition_end = partition.fit(sg.Point(trajectory['segment'][-1]['geometry'][-1]))
-    features[i]['partition'] = (partition_begin, partition_end)
+        features[i]['duration'] = (trajectory['segment'][-1].end.idx -
+                                   trajectory['segment'][0].begin.idx)
+        features[i]['avg_speed'] = features[i]['length'] / features[i]['duration']
 
-    #print len(trajectory['segment'])
-    features[i]['duration'] = (trajectory['segment'][-1]['idx'][1] - 
-                               trajectory['segment'][0]['idx'][0])
-    features[i]['avg_speed'] = features[i]['length'] / features[i]['duration']
+        elev_M2, elev_M3 = extract_elevation_stats(trajectory, graph, elevation)
+        features[i]['elev_m2'] = elev_M2
+        features[i]['elev_m3'] = elev_M3
 
-    elev_stats = extract_elevation_stats(trajectory, graph, elevation)
-    features[i]['elev_var'] = elev_stats.variance()
-    features[i]['elev_skew'] = elev_stats.skewness()
-
-    #print features[i].values()
-  return features
-
-def main(argv):
-  parser = argparse.ArgumentParser(description="""
-    Extract several features from mapmatched bike trajectories.
-    Features are:
-    length
-    length_cycling
-    length_designated_roadway
-    length_bike_lane
-    length_seperate_cycling_link
-    length_offroad
-
-    end_of_facility
-    change_of_facility_type
-    intersections_disc
-    """, formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-  parser.add_argument('-i', '--ifile', default = 'data/bike_path/mm.pickle', 
-    help='input pickle file of mapmatched (with spat.trajectory.mapmatch) data.');
-  parser.add_argument('--facility', default = 'data/mtl_geobase/mtl.pickle', 
-    help="""input pickle file containing the facility graph 
-    (with spat.geobase.preprocess) representing the road network""");
-  parser.add_argument('-o', '--ofile', 
-    default = ['data/bike_path/features.json'], nargs='+',
-    help="""output file containing an array of segments. 
-    Supported formats include *.json, *.csv""");
-
-  args = parser.parse_args()
-  print 'input file:', args.ifile
-  print 'facility:', args.facility
-  print 'output file:', args.ofile
-
-
-  with open(args.facility, 'r') as f:
-    graph = pickle.load(f)
-  graph.build_spatial_node_index()
-
-  with open(args.ifile, 'r') as f:
-    data = pickle.load(f)
-
-  features = extract_features(data, graph)
-
-  for output in args.ofile:
-    with open(output, 'w+') as f:
-      if fnmatch.fnmatch(output, '*.csv'):
-        writer = csv.writer(f)
-        for row in features:
-          print row.values()
-          writer.writerow(row.values())
-      elif fnmatch.fnmatch(output, '*.json'):
-        json.dump(features, f, indent=2)
-
-if __name__ == "__main__":
-  main(sys.argv[1:])
+    return features
