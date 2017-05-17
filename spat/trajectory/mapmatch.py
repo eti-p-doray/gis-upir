@@ -643,7 +643,7 @@ def solve(trajectory, graph, distance_cost_fcn, intersection_cost_fcn, greedy_fa
 
     start_time = time.time()
     path = chain.find_best(InitialNode(), FinalNode(), heuristic,
-                           priority_threshold=10000.0, progress_fcn=progress, max_visited=len(states) * 20)
+                           priority_threshold=50000.0, progress_fcn=progress, max_visited=len(states) * 20)
     logging.info("elapsed_time: %.4f", time.time() - start_time)
     if path is None:
         logging.warning("trashing %s due to incomplete mapmatch", trajectory['id'])
