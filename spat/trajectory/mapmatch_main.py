@@ -68,13 +68,13 @@ def main(argv):
     graph.build_spatial_edge_index()
     graph.build_spatial_node_index()
 
-    link_weights = numpy.array([
-        2.0,   0.0,   0.0,    0.0,   0.0,
-        0.0,  1.0,   1.0,   1.0,   1.0,
-        1.0, 0.0, 0.0, 0.0])
-    intersection_weights = numpy.array([
-        1.0,   1.0,   1.0,  1.0,
-        1.0,  1.0,  1.0])
+    weights = numpy.array([
+        -1.16736728,  0.40705898,  0.98938962,  1.00983071,  0.04520515,  0.70477058,
+        1.38372518,  1.7698496,   1.4251528,   2.86566463,  1.79237496,  0.9753002,
+        -0.02962965,  0.01735227,  0.21860581,  0.13128405,  0.10211077, -0.00532994,
+        -0.06880556, -0.29622041, -0.0500057])
+    link_weights = weights[0:14]
+    intersection_weights = weights[14:21]
 
     intersection_collections = {
         'end_of_facility': features.match_intersections(
