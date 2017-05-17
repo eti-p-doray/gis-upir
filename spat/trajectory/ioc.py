@@ -189,4 +189,8 @@ def estimate_gradient(param, example, graph: facility.SpatialGraph, intersection
     #logging.info("%s, %s", str(numpy.dot(param, feature)), str(numpy.dot(param, example[0])))
     #if numpy.dot(param, feature) < numpy.dot(param, example[0]) / 2.0:
     #    return None # this example is too bad
-    return example[0] - feature#numpy.divide(example[0] - feature, example[0] + 1.0)
+
+
+    a = example[0] - feature
+    b = param / numpy.linalg.norm(param)
+    return a - numpy.dot(a, b) * b
