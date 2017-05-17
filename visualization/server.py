@@ -69,10 +69,10 @@ def main(argv):
 
   print 'cluster file:', clusterfile
 
-  cluster = spat.trajectory.cluster.handler(clusterfile)
+  #cluster = spat.trajectory.cluster.handler(clusterfile)
   #s = http_server('localhost', 8000, request_handler(cluster))
   try:
-    s = HTTPServer(('localhost', 8000), handle_requests_using(cluster))
+    s = HTTPServer(('localhost', 8000), handle_requests_using(None))
     s.serve_forever()
   except KeyboardInterrupt:
     print '^C received, shutting down the web server'
