@@ -246,7 +246,7 @@ def extract_features(trajectories, graph):
         load_traffic_lights("data/traffic_lights/All_lights"), graph)
     elevation = raster.RasterImage("data/elevation/30n090w_20101117_gmted_min075.tif")
 
-    partition = RegionPartition("data/partition/ZT2008_1631_v2b_region")
+    partition = RegionPartition("data/partition/ZT2013_MTL_region")
 
     features = {}
     for trajectory in trajectories:
