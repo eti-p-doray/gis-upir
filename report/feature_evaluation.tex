@@ -29,7 +29,7 @@ cyclists. This dataset is obtained from Mon RésoVélo, a free mobile applicatio
 gathering real-time data on cyclist about their speed and position. This information is meant to provide insight to Montreal City specialists, to help them improve cycling facilities and promote cycling traffic.
 
 We present in this document our approach to analyse the dataset with the goal of
-providing usefull and understandable information about cyclist preferences and priorities. This approach treats paths as demonstration from expert actors, similar to the \gls{ioc} [ref]. It is focused on extracting features from those demonstration 
+providing useful and understandable information about cyclist preferences and priorities. This approach treats paths as demonstration from expert actors, similar to the \gls{irl} problem \cite{ziebart2008maximum}. It is focused on extracting features from those demonstration 
 and learning the relative influence of those features on cyclists decisions.  
 
 As a result, this approach allows us to evaluate the significance of extracted features, evaluate the likelihood that a given path will be chosen, as well as predict a path that is most likely going to be chosen given a new origin-destination pair.
@@ -37,7 +37,25 @@ As a result, this approach allows us to evaluate the significance of extracted f
 
 \section{Loading data from csv files}\label{Sec:Load}
 
+The dataset is given in the form of multiple csv files. Each row is a single \gls{gps} entry. The following columns are worth mentionning.
+\begin{itemize}
+  \item \textbf{trip\_id}, a unique number identifying a particular trip to which the current sample belongs. This is used to differentiate one trip from another. 
+  \item \textbf{recorded\_at} is a timestamp associated with the current sample. This is useful because samples are not recorded with a consistant interval.
+  \item \textbf{latitude, longitude} is the actual \gls{gps} entry, in EPSG:4326 projection.
+  \item \textbf{altitude} in meter above the sea. We chose to ignore this entry because it is not consistent from one trip to another and we are instead using raster data to lookup altitude.
+  \item \textbf{speed} in m/s is used to increase the tracking accuracy.
+  \item \textbf{hort\_accuracy, hort\_accuracy} represent an accuracy metric of the gps entry. This is assumed to be a particular quantile around the average and used as such for tracking.
+\end{itemize}
+
+This dataset is first parsed to seperate each trip. We build an vector of observations for each trip.
+
 \section{Model-Based Optimal Smoothing}\label{Sec:Smoothing}
+
+
+
+\section{Representation of facilty}\label{Sec:Facility}
+
+We have access to montreal geobase data set representing streets and cycling facilities, in the form of geographic features. It is worth mentionning that we have no information concerning how those features connect. Therefore, we use an heuristic based purely on distance beetween endpoints to recover intersections.
 
 \section{Path Inference}\label{Sec:Mapmatch}
 
@@ -49,6 +67,7 @@ As a result, this approach allows us to evaluate the significance of extracted f
 
 \subsection{Inequality Constraint by \gls{pdf} truncation}\label{Sec:IneqConstraint}
 
+\iffalse
 Let $e_1 = \begin{bmatrix} 1 & 0 & \ldots & 0\end{bmatrix}^T$.
 Let $\phi_i(k)$ be a constraint vector.
 Let $\tilde{\Sigma}_i(k)$ be a covariant matrix, which has orthogonal diagonalization
@@ -130,23 +149,23 @@ $$
     {\phi_i^T(k) \tilde{\Sigma}_i(k) \phi_i(k)}.
 \end{align}
 $$
+\fi
 
 \section{Feature Extraction}\label{Sec:Features}
 
 All features must be additive.
 
-Once we have the trajectories matched onto the facility, most features can be
-extracted trivially. 
-Features extraction is best represented as a functionnal 
+Once we have the trajectories matched onto the facility, most features can be extracted trivially. 
+Feature extraction is best represented as a functionnal 
 mapping from segments to values representing.
 
 \section{Inverse Reinforcment Learning}\label{Sec:IRL}
 
-\subsection{Feature Expectation}\label{Sec:IRL}
+\subsection{Feature Expectation}\label{Sec:Features}
 
 \subsection{Stochastic Gradient Descent}\label{Sec:SGD}
 
-\subsection{Testing Feature Significance}\label{Sec:SGD}
+\subsection{Testing Feature Significance}\label{Sec:Significance}
 
 \section{Empirical Results}\label{Sec:Result}
 
