@@ -31,9 +31,9 @@ def main(argv):
     parser = argparse.ArgumentParser(description="""
     Learns weiths associated with a vector of features.
     """, formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('--features', default = 'data/bike_path/features.json',
+    parser.add_argument('--features', default = ['data/bike_path/features.json'], nargs='*',
                         help='input pickle file of preprocessed (with spat.trajectory.preprocess) data.')
-    parser.add_argument('--mapmatch', default = 'data/bike_path/mm.pickle',
+    parser.add_argument('--mapmatch', default = 'data/bike_path/mm.pickle', nargs='*',
                         help='input pickle file of preprocessed (with spat.trajectory.preprocess) data.')
     parser.add_argument('--facility', default = 'data/mtl_geobase/mtl.pickle',
                         help="""input pickle file containing the facility graph 
@@ -46,16 +46,76 @@ def main(argv):
 
     logging.basicConfig(level=logging.INFO)
 
+    mm = []
+    for filename in args.mapmatch:
+        with open(filename, 'rb') as f:
+            mm.extend(pickle.load(f))
+
+    feature_dict = {}
+    for filename in args.features:
+        with open(filename, 'r') as f:
+            feature_dict.update(json.load(f))
+
+    elevation = raster.RasterImage("data/elevation/30n090w_20101117_gmted_min075.tif")
+    dst_proj = pyproj.Proj(init='epsg:4326')
+
+    observation = []
+    for trajectory in mm:
+        if trajectory['id'] not in feature_dict:
+            continue
+        feature = feature_dict[trajectory['id']]
+        example = numpy.array([
+              feature['length'],
+              feature['length_cycling'],
+              feature['length_designated_roadway'],
+              feature['length_bike_lane'],
+              feature['length_seperate_cycling_link'],
+              feature['length_offroad'],
+              feature['length_other_road'],
+              feature['length_arterial'],
+              feature['length_collector'],
+              feature['length_highway'],
+              feature['length_local'],
+              feature['length_inverse'],
+              feature['elev_m2'],
+              feature['elev_m3'],
+              feature['left_turn'],
+              feature['right_turn'],
+              feature['intersections'],
+              feature['end_of_facility'],
+              feature['change_of_facility_type'],
+              feature['intersections_disc'],
+              feature['traffic_lights'],
+          ])
+        observation.append(example)
+
+    #print(observation)
+    observation = numpy.array(observation).T
+    covariance = numpy.cov(observation)
+    #print(observation.shape)
+    #print(covariance)
+    eigen_values, eigen_vectors = numpy.linalg.eig(covariance)
+  
+
+    logging.info("eigen_values: %s", str(eigen_values))
+    #logging.info("eigen_vectors: %s", str(eigen_vectors))
+
+    eigen_values = eigen_values[0:19]
+    eigen_vectors = eigen_vectors[:,0:19]
+
+    observation = numpy.dot(eigen_vectors.T, observation)
+
+    examples = []
+    for i, trajectory in enumerate(mm):
+        if trajectory['id'] not in feature_dict:
+            continue
+        examples.append((observation[:,i], trajectory))
+        #print(observation[:, i])
+
     with open(args.facility, 'rb') as f:
         graph = pickle.load(f)
     graph.build_spatial_node_index()
     graph.build_spatial_edge_index()
-
-    with open(args.mapmatch, 'rb') as f:
-        mm = pickle.load(f)
-
-    with open(args.features, 'r') as f:
-        feature_table = json.load(f)
 
     intersection_collections = {
         'end_of_facility': features.match_intersections(
@@ -69,68 +129,25 @@ def main(argv):
             features.load_traffic_lights("data/traffic_lights/All_lights"), graph),
     }
 
-    elevation = raster.RasterImage("data/elevation/30n090w_20101117_gmted_min075.tif")
-    dst_proj = pyproj.Proj(init='epsg:4326')
+    params = numpy.dot(numpy.ones(21), eigen_vectors)
+    print(params)
 
-    """weights = numpy.ones(18)
-    for i, trajectory in enumerate(mm):
-        path, feature = ioc.best_path(weights, trajectory, graph, intersection_collections)
-        mm[i]['ioc'] = path
-
-    with open("data/bike_path/ioc.json", 'w+') as f:
-        json.dump(make_geojson(mm, graph), f, indent=2)"""
-
-    data = []
-    for trajectory in mm:
-        if trajectory['id'] not in feature_table:
-            continue
-        feature = feature_table[trajectory['id']]
-        example = (numpy.array([
-            feature['length'],
-            feature['length_cycling'],
-            feature['length_designated_roadway'],
-            feature['length_bike_lane'],
-            feature['length_seperate_cycling_link'],
-            feature['length_offroad'],
-            feature['length_other_road'],
-            feature['length_arterial'],
-            feature['length_collector'],
-            feature['length_highway'],
-            feature['length_local'],
-            feature['length_inverse'],
-            feature['elev_m2'],
-            feature['elev_m3'],
-            feature['left_turn'],
-            feature['right_turn'],
-            feature['intersections'],
-            feature['end_of_facility'],
-            feature['change_of_facility_type'],
-            feature['intersections_disc'],
-            feature['traffic_lights'],
-        ]), trajectory)
-        data.append(example)
-
-    """weights = numpy.array([
-        -1.28196656,   1.77788516,   5.3258071,    5.33732081,   5.28143121,
-        19.11296935,  26.64963663,   7.24787299,   7.20067051,   7.14238749,
-        7.20586499,   2.90069485,   3.9690854,   -1.47872437,  26.92730463,
-        5.55673258,  -2.17199329,  15.23823839])"""
-    weights = numpy.ones(21)
-
-    weights = ioc.inverse_optimal_control(
-        data,
-        lambda param, examples: ioc.estimate_gradient(param, examples, graph,
-                                                      intersection_collections, elevation, dst_proj), weights,
+    params = ioc.inverse_optimal_control(
+        examples,
+        lambda param, examples: ioc.estimate_gradient(param, eigen_values, eigen_vectors, examples, graph,
+                                                      intersection_collections, elevation, dst_proj), params,
         0.01, 0.1, 10)
 
-    score = numpy.zeros(weights.shape)
+    logging.info("params: %s", str(params))
+
+    """score = numpy.zeros(weights.shape)
     for i, trajectory in enumerate(mm):
         path, feature = ioc.best_path(weights, trajectory, graph, intersection_collections, elevation, dst_proj)
         logging.info("feature: %s", str(feature))
         score += numpy.dot(weights, feature)
 
     weights = (weights / score) * len(mm)
-    print(weights)
+    print(weights)"""
 
 
 if __name__ == "__main__":
