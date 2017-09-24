@@ -14,17 +14,17 @@ def identity_projection(key):
 
 class MarkovGraph:
     """ Represents a markov chain as a graph of virtual nodes.
-  
-    A markov chain is a stochastic process in which the conditional probability 
-    distribution of future states of the process depends only upon 
+
+    A markov chain is a stochastic process in which the conditional probability
+    distribution of future states of the process depends only upon
     the present state.
-    
+
     States in the graph are represented as hashable keys. The function |state_projection| maps
     those keys to the state values.
-  
-    Transitions in the chain are discovered through |transition_generator|, a 
+
+    Transitions in the chain are discovered through |transition_generator|, a
     generator of adjacent hashable state keys, that takes the current state value as argument.
-  
+
     """
     def __init__(self, transition_generator, state_cost_fcn, transition_cost_fcn,
                  state_projection=identity_projection,
@@ -131,10 +131,12 @@ class MarkovGraph:
         if current_key != goal:
             return None
 
+        logging.info("priority, cost: %.4f, %.4f", priority_table[goal], cost_table[goal][0])
+
         def backtrack():
             key = current_key
             while key is not None:
                 yield key
                 key = backtrack_chain[key]
 
-        return reversed(list(backtrack()))
+        return reversed(list(backtrack())), priority_table[goal]

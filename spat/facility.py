@@ -140,12 +140,12 @@ class SpatialGraph:
         sf.field('first')
         sf.field('last')
         sf.field('way_id')
-        sf.field('id')
+        sf.field('type')
         idx = 0
         for u, v, k, p in self.graph.edges(data=True,keys=True):
             line = sg.mapping(self.edge_geometry((u,v,k)))
             sf.line(parts=[line['coordinates']])
-            sf.record(first= u, last= v, way_id= p['way_id'], id= p['edge_id'])
+            sf.record(first= u, last= v, way_id= p['way_id'], type= p['type'])
             idx += 1
         return sf
 

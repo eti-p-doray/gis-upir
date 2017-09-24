@@ -11,7 +11,14 @@ def make_geojson(trajectories):
     features = []
     for trajectory in trajectories:
 
-        state = [[s.x[0], s.x[1]] for s in trajectory['state']]
+        state = [[s[0], s[1]] for s in trajectory['observations'] if s is not None]
+        features.append(geojson.Feature(
+            geometry = sg.mapping(sg.LineString(state)),
+            properties = {
+                'id':trajectory['id'],
+                'type':'observations'}))
+
+        state = [[s.x[0], s.x[1]] for s in trajectory['state'] if s is not None]
         features.append(geojson.Feature(
             geometry = sg.mapping(sg.LineString(state)),
             properties = {

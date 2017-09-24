@@ -36,7 +36,7 @@ def extract_length(trajectory, predicate):
             if segment.edge is None:
                 length += sg.LineString(segment.geometry).length
             else:
-                length += segment.end.projection - segment.begin.projection
+                length += abs(segment.end.projection - segment.begin.projection)
     return length
 
 

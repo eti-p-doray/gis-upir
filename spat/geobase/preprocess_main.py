@@ -59,10 +59,12 @@ def main(argv):
 
     parser.add_argument('-o', '--ofile',
                         default='data/mtl_geobase/mtl.pickle',
-                        help="""output file containing a serialization of the graph. 
+                        help="""output file containing a serialization of the graph.
       Supported formats include *.json, *.csv""")
     parser.add_argument('--geojson',
                         help='output geojson file to export constrained geometry')
+    parser.add_argument('--shapefile',
+                        help='output shapefile to export constrained geometry')
 
     args = parser.parse_args()
     print('output file:', args.ofile)
@@ -82,6 +84,10 @@ def main(argv):
     if args.geojson is not None:
         with open(args.geojson, 'w+') as f:
             json.dump(graph.make_geojson(2150), f, indent=2)
+    if args.shapefile is not None:
+        graph.make_shp().save(args.shapefile)
+
+
     print('done')
 
 if __name__ == "__main__":

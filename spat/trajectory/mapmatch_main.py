@@ -1,6 +1,5 @@
 import sys, argparse, logging
 import pickle, json, geojson, csv
-import shapely.geometry as sg
 import numpy
 import pyproj
 
@@ -8,44 +7,18 @@ from spat.trajectory import mapmatch, smooth, load, features
 from spat import raster, utility
 
 
-def make_geojson(trajectories, graph):
-    features = []
-    for trajectory in trajectories:
-        segments = trajectory['segment']
-        mm = []
-        for segment in segments:
-            for point in segment.geometry:
-                mm.append(point)
-
-        if len(mm) > 1:
-            features.append(geojson.Feature(
-                geometry = sg.mapping(sg.LineString(mm)),
-                properties = {'type':'mm'}))
-        """for node in trajectory['node']:
-            if (isinstance(node, mapmatch.LinkedNode) or isinstance(node, mapmatch.ForwardingNode) or
-                isinstance(node, mapmatch.FloatingNode) or isinstance(node, mapmatch.JumpingNode)):
-                features.append(geojson.Feature(
-                    geometry= sg.mapping(sg.Point(node.coordinates())),
-                    properties= {'type': node.__class__.__name__}
-                ))"""
-
-    fc = geojson.FeatureCollection(features)
-    fc['crs'] = {'type': 'EPSG', 'properties': {'code': 2150}}
-    return fc
-
-
 def main(argv):
     parser = argparse.ArgumentParser(description="""
     Mapmatch preprocessed bike trajectories based on a facility graph.
-    The outcome is a pickle file describing every step of the trajectory in 
+    The outcome is a pickle file describing every step of the trajectory in
     terms of segments that may be linked to an edge in the facility graph.
-    Each segment also have its own geometry, which is the result of constraining 
+    Each segment also have its own geometry, which is the result of constraining
     the state on the current link.
     """, formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('-i', '--ifile', default = 'data/bike_path/Chunk_1_mm.csv',
                         help='input pickle file of preprocessed (with spat.trajectory.preprocess) data.')
     parser.add_argument('--facility', default = 'data/mtl_geobase/mtl.pickle',
-                        help="""input pickle file containing the facility graph 
+                        help="""input pickle file containing the facility graph
     (with spat.geobase.preprocess) representing the road network""")
     parser.add_argument('-o', '--ofile', default = 'data/bike_path/mm_1.pickle',
                         help='output pickle file containing an array of segments')
@@ -69,10 +42,8 @@ def main(argv):
     graph.build_spatial_node_index()
 
     weights = numpy.array([
-        -1.16736728,  0.40705898,  0.98938962,  1.00983071,  0.04520515,  0.70477058,
-        1.38372518,  1.7698496,   1.4251528,   2.86566463,  1.79237496,  0.9753002,
-        -0.02962965,  0.01735227,  0.21860581,  0.13128405,  0.10211077, -0.00532994,
-        -0.06880556, -0.29622041, -0.0500057])
+        1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0,
+        1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0])
     link_weights = weights[0:14]
     intersection_weights = weights[14:21]
 
@@ -96,7 +67,7 @@ def main(argv):
         end_elevation = elevation.at(end, dst_proj)
         cost = numpy.dot(features.link_features(length, start_elevation, end_elevation, link, graph), link_weights)
         if link is None:
-            cost += 30.0 * length
+            cost += 25.0 * length
         return cost
 
     def intersection_cost(a, b):
@@ -120,7 +91,7 @@ def main(argv):
         pickle.dump(matched, f)
     if args.geojson is not None:
         with open(args.geojson, 'w+') as f:
-            json.dump(make_geojson(matched, graph), f, indent=2)
+            json.dump(mapmatch.make_geojson(matched, graph), f, indent=2)
 
 if __name__ == "__main__":
   main(sys.argv[1:])

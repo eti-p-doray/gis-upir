@@ -3,6 +3,7 @@ import math
 import numpy
 from scipy import linalg, spatial
 import shapely.geometry as sg
+import shapefile
 
 from spat import markov, utility, facility, kalman
 from spat.trajectory import features, model
@@ -64,7 +65,7 @@ class Segment:
             cost += state.ineq_constraint_update(
                 self.D,
                 [self.direction_distance, 0.0],
-                [self.direction_distance + self.length, 50.0])
+                [self.direction_distance + self.length, 12.0])
 
         except ValueError:
             return numpy.inf, None, None
@@ -225,7 +226,7 @@ class LinkedNode:
         def __lt__(self, other):
             return (self.edge, self.offset, self.idx) < (other.edge, other.offset, other.idx)
 
-        def make_node(self, states, projections: ProjectionManager, geometry: LinkManager):
+        def make_node(self, states, transition, projections: ProjectionManager, geometry: LinkManager):
             return LinkedNode(self.edge, self.offset, self.idx, geometry.at(self.edge),
                               *projections.at(self.idx, self.edge, self.offset))
 
@@ -319,7 +320,7 @@ class ForwardingNode:
         def __lt__(self, other):
             return (self.anchor.idx, self.edge) < (other.anchor.idx, other.edge)
 
-        def make_node(self, states, projections: ProjectionManager, geometry: LinkManager):
+        def make_node(self, states, transition, projections: ProjectionManager, geometry: LinkManager):
             return ForwardingNode(self.anchor, self.distance, self.edge, geometry.at(self.edge), self.projected_state)
 
         def progress(self):
@@ -388,7 +389,7 @@ class FloatingNode:
         def __lt__(self, other):
             return self.idx < other.idx
 
-        def make_node(self, states, projections: ProjectionManager, geometry: LinkManager):
+        def make_node(self, states, transition, projections: ProjectionManager, geometry: LinkManager):
             return FloatingNode(self.idx, states[self.idx])
 
         def progress(self):
@@ -416,7 +417,9 @@ class FloatingNode:
     def cost_to(self, other, distance_cost_fcn, intersection_cost_fcn):
         if isinstance(other, FinalNode):
             return 0.0
-        return distance_cost_fcn(self.distance_to(other), self.coordinates(), other.coordinates(), None)
+        distance = self.distance_to(other)
+        cost = distance_cost_fcn(distance, self.coordinates(), other.coordinates(), None)
+        return cost
 
     def handicap(self, distance_cost_fcn):
         return 0.0
@@ -426,9 +429,12 @@ class FloatingNode:
 
 
 class JumpingNode:
-    def __init__(self, anchor: LinkedNode, state: kalman.KalmanFilter):
+    def __init__(self, anchor: LinkedNode, state: kalman.KalmanFilter, transition):
         self.anchor = anchor
         self.state = state
+        (F, Q) = transition
+        self.expected_state = self.anchor.constrained_state.copy()
+        self.expected_state.time_update(F, Q)
 
     def __str__(self):
         return "JumpingNode: " + str(self.anchor.idx)
@@ -447,8 +453,8 @@ class JumpingNode:
         def __lt__(self, other):
             return self.anchor.idx < other.idx
 
-        def make_node(self, states, projections: ProjectionManager, geometry: LinkManager):
-            return JumpingNode(self.anchor, states[self.anchor.idx+1])
+        def make_node(self, states, transition, projections: ProjectionManager, geometry: LinkManager):
+            return JumpingNode(self.anchor, states[self.anchor.idx+1], transition)
 
         def progress(self):
             return self.anchor.edge, self.anchor.idx
@@ -474,10 +480,23 @@ class JumpingNode:
         return spatial.distance.euclidean(self.anchor.coordinates(), other.coordinates())
 
     def cost_to(self, other, distance_cost_fcn, intersection_cost_fcn):
-        return distance_cost_fcn(self.distance_to(other), self.anchor.coordinates(), other.coordinates(), None)
+        distance = self.distance_to(other)
+        cost = distance_cost_fcn(distance, self.anchor.coordinates(), other.coordinates(), None)
+        future_state = self.expected_state.copy()
+        if isinstance(other, LinkedNode):
+            cost += future_state.measurment_update(other.constrained_state.x, numpy.identity(4), other.constrained_state.P)
+        else:
+            cost += future_state.measurment_update(other.state.x, numpy.identity(4), other.state.P)
+        cost += future_state.ineql_constraint_distance(numpy.hstack((numpy.zeros(2), future_state.x[2:4])), 12)
+        return cost
 
     def handicap(self, distance_cost_fcn):
-        return distance_cost_fcn(self.distance_to(self), self.anchor.coordinates(), self.coordinates(), None)
+        distance = self.distance_to(self)
+        cost = distance_cost_fcn(distance, self.anchor.coordinates(), self.coordinates(), None)
+        future_state = self.expected_state.copy()
+        cost += future_state.measurment_update(self.state.x, numpy.identity(4), self.state.P)
+        cost += future_state.ineql_constraint_distance(numpy.hstack((numpy.zeros(2), future_state.x[2:4])), 12)
+        return cost
 
     def heuristic(self, states, distance_cost_fcn, cumulative_distance, greedy_factor):
         return - greedy_factor * cumulative_distance[self.anchor.idx+1]
@@ -494,7 +513,7 @@ class InitialNode:
     def __str__(self):
         return "InitialNode"
 
-    def make_node(self, states, projections: ProjectionManager, geometry: LinkManager):
+    def make_node(self, states, transition, projections: ProjectionManager, geometry: LinkManager):
         return self
 
     def cost(self):
@@ -531,7 +550,7 @@ class FinalNode:
     def __str__(self):
         return "FinalNode"
 
-    def make_node(self, states, projections: ProjectionManager, geometry: LinkManager):
+    def make_node(self, states, transition, projections: ProjectionManager, geometry: LinkManager):
         return self
 
     def cost(self):
@@ -606,7 +625,8 @@ def solve(trajectory, graph, distance_cost_fcn, intersection_cost_fcn, greedy_fa
     logging.info("solving mapmatch for %s", trajectory['id'])
 
     states = trajectory['state']
-    link_manager = LinkManager(graph, trajectory['transition'])
+    transition = trajectory['transition']
+    link_manager = LinkManager(graph, transition)
 
     cumulative_distance = [0.0]
     total_distance = 0.0
@@ -636,13 +656,13 @@ def solve(trajectory, graph, distance_cost_fcn, intersection_cost_fcn, greedy_fa
         return state.progress()
 
     def project(key):
-        return key.make_node(states, projections, link_manager)
+        return key.make_node(states, transition, projections, link_manager)
 
     chain = markov.MarkovGraph(adjacent_nodes, state_cost, transition_cost,
                                handicap_fcn=handicap, state_projection=project)
 
     start_time = time.time()
-    path = chain.find_best(InitialNode(), FinalNode(), heuristic,
+    path, priority = chain.find_best(InitialNode(), FinalNode(), heuristic,
                            priority_threshold=50000.0, progress_fcn=progress, max_visited=len(states) * 20)
     logging.info("elapsed_time: %.4f", time.time() - start_time)
     if path is None:
@@ -650,7 +670,60 @@ def solve(trajectory, graph, distance_cost_fcn, intersection_cost_fcn, greedy_fa
         return None
 
     nodes = list([project(key) for key in path])
+    if priority > 0:
+        logging.warning("trashing %s due to bad mapmatch", trajectory['id'])
+        return None
     return {'segment': list(format_path(nodes)),
             'id': trajectory['id'],
-            #'node': nodes,
+            'node': nodes,
             'count': len(trajectory['state'])}
+
+
+def make_geojson(trajectories, graph):
+    import geojson
+
+    features = []
+    for trajectory in trajectories:
+        segments = trajectory['segment']
+        mm = []
+        for segment in segments:
+            for point in segment.geometry:
+                mm.append(point)
+
+        if len(mm) > 1:
+            features.append(geojson.Feature(
+                geometry = sg.mapping(sg.LineString(mm)),
+                properties = {'type':'mm', 'id':trajectory['id']}))
+        """for node in trajectory['node']:
+            if (isinstance(node, LinkedNode) or isinstance(node, ForwardingNode) or
+                isinstance(node, FloatingNode) or isinstance(node, JumpingNode)):
+                features.append(geojson.Feature(
+                    geometry= sg.mapping(sg.Point(node.coordinates())),
+                    properties= {'type': node.__class__.__name__}
+                ))"""
+
+    fc = geojson.FeatureCollection(features)
+    fc['crs'] = {'type': 'EPSG', 'properties': {'code': 2150}}
+    return fc
+
+def make_shp(trajectories, graph):
+
+    sf = shapefile.Writer(shapefile.POLYLINE)
+    sf.autoBalance = 1
+    sf.field('type')
+    sf.field('id')
+
+    features = []
+    for trajectory in trajectories:
+        segments = trajectory['segment']
+        mm = []
+        for segment in segments:
+            for point in segment.geometry:
+                mm.append(point)
+
+        if len(mm) > 1:
+            line = sg.mapping(sg.LineString(mm))
+            sf.line(parts=[line['coordinates']])
+            sf.record(type= 'mm', id= trajectory['id'])
+
+    return sf

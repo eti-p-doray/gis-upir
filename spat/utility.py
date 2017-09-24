@@ -32,7 +32,11 @@ def peek(iterable):
 
 
 def first(iterable):
-    return peek(iterable)[0]
+    it = iter(iterable)
+    try:
+        return next(it)
+    except StopIteration:
+        return None
 
 
 def xor(a, b):

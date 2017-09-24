@@ -41,6 +41,9 @@ def load_csv(data):
             previous_id = current_id
             previous_time = None
 
+        #if current_id != "9160":
+        #    continue
+
         current_time = datetime.datetime.strptime(row[time_idx], '%Y-%m-%d %H:%M:%S')
         while (previous_time is not None and
                 previous_time + datetime.timedelta(seconds=1) < current_time):
