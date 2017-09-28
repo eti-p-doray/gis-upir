@@ -129,7 +129,7 @@ class MarkovGraph:
                 backtrack_chain[next_key] = current_key
 
         if current_key != goal:
-            return None
+            return None, None
 
         logging.info("priority, cost: %.4f, %.4f", priority_table[goal], cost_table[goal][0])
 

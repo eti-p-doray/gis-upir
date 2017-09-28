@@ -63,7 +63,7 @@ def smooth_state(trajectory):
         trajectory['state'][i].smooth_update(next_state, F, Q)
         next_state = trajectory['state'][i]
         determinant = numpy.linalg.det(next_state.P)
-        if determinant > 0.0 and math.log10(determinant) > 5*next_state.P.shape[0]:
+        if determinant > 0.0 and math.log10(determinant) > 4*next_state.P.shape[0]:
             logging.warning("trashing %s due to missing data", trajectory['id'])
             return None
 

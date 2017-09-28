@@ -724,6 +724,7 @@ def make_shp(trajectories, graph):
         if len(mm) > 1:
             line = sg.mapping(sg.LineString(mm))
             sf.line(parts=[line['coordinates']])
-            sf.record(type= 'mm', id= trajectory['id'])
+            print(trajectory['id'])
+            sf.record('mm', trajectory['id'])
 
     return sf

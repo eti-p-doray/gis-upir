@@ -92,7 +92,7 @@ Map.prototype.removeInteraction = function(interaction) {
   this.map.removeInteraction(interaction);
 }
 
-Map.prototype.addSelectInteraction = 
+Map.prototype.addSelectInteraction =
     function(options, onSelect, onDeselect) {
   let select = new ol.interaction.Select(options);
   select.on('select', function(e) {
@@ -154,10 +154,13 @@ Map.prototype.addImageLayer = function(raster) {
 }
 
 Map.prototype.addShp = function(name, style) {
+  console.log("hello");
   var deferred = new $.Deferred();
   shp(name).then(function(geojson){
+    console.log("bou");
+    console.log(geojson);
     var vectorSource = new ol.source.Vector({
-      features: (new ol.format.GeoJSON()).readFeatures(geojson)
+      features: (new ol.format.GeoJSON()).readFeatures(geojson, {featureProjection: 'EPSG:3857'})
     });
     var vl = this.addVectorLayer(vectorSource, style, name);
     deferred.resolve(vl);
@@ -206,7 +209,7 @@ Controller.prototype.updateCluster = function(trajectoryLayer, clusterLayer, int
   });
 }
 
-Controller.prototype.addSelectInteractions = 
+Controller.prototype.addSelectInteractions =
     function(trajectoryLayer, clusterLayer) {
   let onSelect = {};
   let onDeselect = {};
@@ -244,14 +247,14 @@ Controller.prototype.bind = function() {
   this.selection = new Set([]);
   this.highlighted = [];
 
-  /*let trajectoriesPromise = 
+  /*let trajectoriesPromise =
     this.map.addGeojson("http://localhost:8000/data/bike_path/smoothed.json", function(feature) {
-    
+
     let properties = feature.getProperties();
     let height = properties.height;
     //console.log(height);
 
-    var rainbow = new Rainbow(); 
+    var rainbow = new Rainbow();
     rainbow.setNumberRange(0, 80);
     rainbow.setSpectrum('blue', 'red');
 
@@ -266,8 +269,8 @@ Controller.prototype.bind = function() {
     return style;
   });*/
 
-  let trajectoriesPromise = 
-    this.map.addGeojson("http://localhost:8000/data/bike_path/smoothed.json", styles.smoothed_trajectory);
+  /*let trajectoriesPromise =
+    this.map.addGeojson("http://localhost:8000/data/bike_path/smoothed.json", styles.smoothed_trajectory);*/
 
   /*this.map.addRaster("http://localhost:8000/data/elevation/30n090w_20101117_gmted_mea300.tif");*/
 
@@ -282,6 +285,8 @@ Controller.prototype.bind = function() {
   //this.map.addGeojson("http://localhost:8000/data/mtl_geobase/road.json", styles.road);
   /*this.map.addGeojson("http://localhost:8000/data/bike_path/ioc.json", styles.ioc_trajectory);*/
   //this.map.addGeojson("http://localhost:8000/data/mtl_geobase/cycling.json", styles.cycling);
+
+  //this.map.addShp("http://localhost:8000/result/mm", styles.smoothed_trajectory);
 
   this.map.addGeojson("http://localhost:8000/data/bike_path/mm.json", styles.mm_trajectory);
 
