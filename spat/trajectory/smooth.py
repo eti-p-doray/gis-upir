@@ -67,35 +67,47 @@ def smooth_state(trajectory):
             logging.warning("trashing %s due to missing data", trajectory['id'])
             return None
 
-    previous_state = None
+    R = Q
+    R[2:4,2:4] = 0
+    H = numpy.matrix([[1, 0, 0, 0], [0, 1, 0, 0]])
+
+    start_state = None
     for i, state in enumerate(trajectory['state']):
-        if previous_state is not None:
-          y = numpy.concatenate((previous_state.x[0:2], numpy.zeros(2)))
-          R = Q
-          R[0:2,0:2] += previous_state.P[0:2,0:2]
-          l = state.measurment_update(y, numpy.identity(4), R)
-          if l > 1.04:
+        if start_state is None:
+            start_state = state
+            x = numpy.concatenate((state.x[0:2], numpy.zeros(2)))
+            P = Q
+            P[0:2,0:2] += state.P[0:2,0:2]
+            start_state = kalman.KalmanFilter(x, P)
+        else:
+            start_state.time_update(numpy.identity(4), R)
+            l = start_state.measurment_distance(state.x, numpy.identity(4), state.P)
+            if l > 1.04:
               break
-        previous_state = state
+            start_state.measurment_update(state.x[0:2], H, state.P[0:2,0:2])
 
     logging.warning("starting trajectory at %d", i)
-    if i > 0:
-      trajectory['state'] = trajectory['state'][i:]
+    if i > 1:
+      trajectory['state'] = [start_state] + trajectory['state'][i:]
 
-    next_state = None
+    end_state = None
     for i, state in enumerate(reversed(trajectory['state'])):
-        if next_state is not None:
-            y = numpy.concatenate((next_state.x[0:2], numpy.zeros(2)))
-            R = Q
-            R[0:2,0:2] += next_state.P[0:2,0:2]
-            l = state.measurment_update(y, numpy.identity(4), R)
+        if end_state is None:
+            end_state = state
+            x = numpy.concatenate((state.x[0:2], numpy.zeros(2)))
+            P = Q
+            P[0:2,0:2] += state.P[0:2,0:2]
+            end_state = kalman.KalmanFilter(x, P)
+        else:
+            end_state.time_update(numpy.identity(4), R)
+            l = end_state.measurment_distance(state.x, numpy.identity(4), state.P)
             if l > 1.04:
-                break
-        next_state = state
+              break
+            end_state.measurment_update(state.x[0:2], H, state.P[0:2,0:2])
 
     logging.warning("ending trajectory at %d", i)
-    if i > 0:
-      trajectory['state'] = trajectory['state'][:-i]
+    if i > 1:
+      trajectory['state'] = trajectory['state'][:-i] + [end_state]
 
     if len(trajectory['state']) >= 2:
         return trajectory
