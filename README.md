@@ -8,7 +8,7 @@ Here is the description of the current structure.
 
 * visualization : Web application used to vizualize shapefile/geojson data on a Map.
 * spat : Various python 2.7 scripts for analysis, notably map matching.
-* gis : some low-level io utility in c++, mostly abandonned.
+* gis : some low-level io utility in c++, mostly abandoned.
 * data : This folder is not being tracked, but some tools assume it exists.
 
 
